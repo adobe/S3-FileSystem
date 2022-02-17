@@ -1,0 +1,173 @@
+plugins {
+    id 'java'
+    id 'idea'
+    id 'groovy'
+    id 'jacoco'
+    id 'maven-publish'
+    id 'signing'
+    id 'com.github.johnrengelman.shadow' version '2.0.4'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+apply from: 'gradle/idea.gradle'
+
+group = "com.adobe.s3fs"
+archivesBaseName = "s3-filesystem"
+version = "0.2"
+
+dependencies {
+    annotationProcessor "org.immutables:value:2.5.6"
+    compileOnly "org.immutables:value:2.5.6"
+    implementation "com.google.guava:guava:23.0"
+    implementation "com.amazonaws:aws-java-sdk-dynamodb:1.11.665"
+
+    compileOnly "org.apache.hadoop:hadoop-common:3.1.2"
+
+    compileOnly "org.apache.hadoop:hadoop-mapreduce-client-core:3.1.1"
+
+    implementation "net.jodah:failsafe:1.1.1"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.9.7"
+    implementation "com.github.rvesse:airline:2.6.0"
+
+    testImplementation "junit:junit:4.12"
+    testImplementation "org.mockito:mockito-core:2.23.4"
+    testImplementation "com.tngtech.java:junit-dataprovider:1.13.1"
+    testImplementation "org.testcontainers:localstack:1.12.5"
+    testImplementation group: 'org.testcontainers', name: 'testcontainers', version: "1.9.1"
+    testImplementation group: 'cloud.localstack', name: 'localstack-utils', version: '0.1.15'
+    testImplementation group: 'org.apache.hadoop', name: 'hadoop-aws', version: '3.1.1'
+    testImplementation "org.apache.hadoop:hadoop-common:3.1.2"
+    testImplementation "org.apache.hadoop:hadoop-common:3.1.2:tests"
+    testImplementation "org.apache.hadoop:hadoop-mapreduce-client-core:3.1.1"
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+def generatedClassesPath = "$buildDir/classes/main/generated"
+def generatedTestClassesPath = "$buildDir/classes/test/generated_tests"
+
+sourceSets {
+    main {
+        java {
+            srcDirs "src/main/java", "$generatedClassesPath"
+            outputDir = file("${project.buildDir}/classes/main")
+        }
+    }
+    test {
+        java {
+            srcDirs += "$generatedTestClassesPath"
+            outputDir = file("${project.buildDir}/classes/test")
+        }
+    }
+
+    integrationTest {
+        java {
+            srcDirs += "src/integrationTest/java"
+            outputDir = file("${project.buildDir}/classes/integrationTest")
+        }
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+compileJava {
+    options.compilerArgs = ["-s", "$generatedClassesPath"]
+    doFirst {
+        /*
+         * This is a workaround to delete the file that will be created by the annotation processor if it already exists.
+         * There is a known bug in the Java compiler and JDK 8 which should be fixed at JDK 9.
+         * http://bugs.java.com/bugdatabase/view_bug.do?bug_id=8067747 <-- Master report
+         * http://bugs.java.com/bugdatabase/view_bug.do?bug_id=8146348 <-- duplicates master report
+         */
+        file(new File("$generatedClassesPath")).deleteDir()
+        // make sure that directory exists
+        file(new File("$generatedClassesPath")).mkdirs()
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom implementation, testImplementation
+
+    all {
+        resolutionStrategy {
+            force "com.google.guava:guava:23.0"
+        }
+    }
+
+    runtime {
+        // This are transitive dependencies brought via guava:23.0.
+        // Because they land in the shipped jar
+        // I'll exclude them because no functionality from there is used within our code
+        exclude group: 'com.google.code.findbugs', module: 'jsr305'
+        exclude group: 'org.codehaus.mojo', module: 'animal-sniffer-annotations'
+    }
+}
+
+javadoc {
+    source = sourceSets.main.allJava
+    classpath = configurations.compileClasspath
+}
+
+task javadocJar(type: Jar) {
+    from javadoc
+    archiveClassifier = 'javadoc'
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.java.srcDirs
+    archiveClassifier = 'sources'
+}
+
+shadowJar {
+    mergeServiceFiles()
+    relocate 'com.google', 'com.adobe.s3fs.com.google'
+    relocate 'com.amazonaws', 'com.adobe.s3fs.com.amazonaws'
+    relocate 'net.jodah', 'com.adobe.s3fs.net.jodah'
+    relocate 'org.apache.commons', 'com.adobe.s3fs.org.apache.commons'
+    relocate 'org.apache.http', 'com.adobe.s3fs.org.apache.http'
+    relocate 'com.fasterxml', 'com.adobe.s3fs.com.faster.xml'
+    relocate 'software.amazon', 'com.adobe.s3fs.software.amazon'
+    relocate 'org.joda', 'com.adobe.s3fs.org.joda'
+    relocate 'io.netty', 'com.adobe.s3fs.io.netty'
+    relocate 'com.github.rvesse', 'com.adobe.s3fs.com.github.rvesse'
+    // Javax is a transitive dependency brought by com.github.rvesse. Will relocate it as well
+    relocate 'javax.inject', 'com.adobe.s3fs.javax.inject'
+}
+
+task integrationTest(type: Test) {
+    description = 'Runs the integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+
+    mustRunAfter tasks.test
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+artifacts {
+    archives javadocJar, sourcesJar, shadowJar
+}
+
+publishing {
+    publications {
+        Library(MavenPublication) {
+            artifact tasks.javadocJar
+            artifact tasks.sourcesJar
+            artifact tasks.shadowJar
+        }
+    }
+}
+
+afterEvaluate {
+    javadoc.dependsOn compileJava
+    jar.dependsOn test /* , integrationTest */ // remove running of integrationTests for now
+    shadowJar.dependsOn test, sourcesJar, javadocJar /* , integrationTest */ // remove running of integrationTests for now
+}

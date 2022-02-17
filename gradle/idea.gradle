@@ -1,0 +1,65 @@
+idea {
+  module {
+    inheritOutputDirs = false
+    outputDir = file("${project.buildDir}/classes/main")
+    testOutputDir = file("${project.buildDir}/classes/test")
+    downloadJavadoc = true
+    downloadSources = true
+  }
+  project {
+    def javaTarget = '1.8'
+    jdkName = javaTarget
+    languageLevel = javaTarget
+
+    ipr {
+      withXml { provider ->
+        def node = provider.asNode()
+
+        // Code styles
+        def codeStyleManager = node.component.find { it.'@name' == 'ProjectCodeStyleSettingsManager' }
+        if (codeStyleManager != null) {
+          node.remove(codeStyleManager)
+        }
+        def codestyle = new XmlParser().parse(file('gradle/idea-codestyle.xml'))
+        node.append(codestyle)
+
+        // gradle settings
+        def gradleSettingsNode = node.component.find { it.'@name' == 'GradleSettings' }
+        if (gradleSettingsNode != null) {
+          node.remove(gradleSettingsNode)
+        }
+        def gradleSettings = new XmlParser().parse(file('gradle/idea-gradle-settings.xml'))
+        node.append(gradleSettings)
+
+        // Copyright
+        def copyrightManager = node.component.find { it.'@name' == 'CopyrightManager' }
+        node.remove(copyrightManager)
+        def copyright = new XmlParser().parse(file('gradle/idea-copyright.xml'))
+        node.append(copyright)
+
+        // VCS mappings
+        def vcsDirectoryMappings = node.component.find { it.'@name' == 'VcsDirectoryMappings' }
+        def mappings = vcsDirectoryMappings.iterator()
+        while (mappings.hasNext()) {
+          mappings.next()
+          mappings.remove()
+        }
+
+        def gitRoot = file('.git')
+        if (gitRoot.exists()) {
+          vcsDirectoryMappings.appendNode('mapping', ['directory': gitRoot.parentFile, 'vcs': 'Git'])
+        }
+
+        // Annotation processing
+        node.component.find { it.@name == 'CompilerConfiguration' }['annotationProcessing'][0].replaceNode {
+          annotationProcessing {
+            profile(default: true, name: 'Default', useClasspath: 'true', enabled: true) {
+              outputRelativeToContentRoot(value: false)
+              processorPath(useClasspath: true)
+            }
+          }
+        }
+      }
+    }
+  }
+}
