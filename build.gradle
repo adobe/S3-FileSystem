@@ -14,6 +14,8 @@ repositories {
 }
 
 apply from: 'gradle/idea.gradle'
+apply plugin: 'maven-publish'
+apply plugin: 'signing'
 
 group = "com.adobe.s3fs"
 archivesBaseName = "s3-filesystem"
@@ -157,13 +159,50 @@ artifacts {
 }
 
 publishing {
-    publications {
-        Library(MavenPublication) {
-            artifact tasks.javadocJar
-            artifact tasks.sourcesJar
-            artifact tasks.shadowJar
+    repositories {
+        maven {
+            url = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+            credentials {
+                username project.property("ossrhUsername").toString()
+                password project.property("ossrhPassword").toString()
+            }
         }
     }
+    publications {
+        mavenJava(MavenPublication) {
+            artifact shadowJar
+            artifact javadocJar
+            artifact sourcesJar
+
+            pom {
+                name = 'S3 FileSystem'
+                description = 'An implementation of Hadoop FileSystem contract backed by AWS S3 and DynamoDB'
+                url = 'https://github.com/adobe/S3-FileSystem'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'adobe'
+                        name = 'Adobe Systems'
+                        email = 'Grp-opensourceoffice@adobe.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/adobe/S3-FileSystem.git'
+                    developerConnection = 'scm:git:https://github.com/adobe/S3-FileSystem.git'
+                    url = 'https://github.com/adobe/S3-FileSystem/tree/main/'
+                }
+            }
+        }
+    }
+}
+
+signing {
+    sign publishing.publications
 }
 
 afterEvaluate {
