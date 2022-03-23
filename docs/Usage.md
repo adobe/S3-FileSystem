@@ -111,6 +111,13 @@ manner: `fs.s3k.storage.underlying.fs.prop.marker.actual-property.<some-bucket>=
 
 ### Considerations on performance
 
+#### S3 and DynamoDB warm-up
+
+Bear in min that with newly created S3 buckets and DynamoDB tables you will have a single partition.
+You should slowly ramp up your workload and allow auto-scaling to happen behind the scenes.
+
+In the case of DynamoDB you can pre-provision throughput, but we advise against it as it is not very cost-efficient. 
+
 #### Single directory operations performance
 
 Because the first level children of a directory are stored under the same partition key, the operation throughput when
