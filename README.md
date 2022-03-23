@@ -5,6 +5,8 @@ S3-FileSystem
 
 `S3-FileSystem` is an implementation of the Hadoop file system contract backed by AWS S3.
 
+For a details on configuration see our usage [guide](./docs/Usage.md).
+
 ### Goals
 `S3-FileSystem` was created to enable a more efficient usage of AWS S3. This means:
 - provide strong read after write consistency (in the meantime AWS has also rolled out native s3 [strong consystency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel)).
