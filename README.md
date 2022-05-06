@@ -19,7 +19,8 @@ There are differences between `HDFS` and `S3-FileSystem`, most notably:
  - `S3-FileSystem` does not support atomic rename of directories.
  - `S3-FileSystem` does not support POSIX like permissions.
 
-For a full list of differences between `S3-FileSystem` and the Hadoop API specification see our contract [definition](./src/integrationTest/resources/contract/s3k.xml).
+For a full list of differences between `S3-FileSystem` and the Hadoop API specification see our contract [definition](./src/integrationTest/resources/contract/s3k.xml)
+and our API compatibility [analysis](./docs/HadoopFsApiCompatibility.md).
 
 For the full Hadoop API specification please see these [docs](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/filesystem/filesystem.html).
 For the implicit assumptions(including atomicity and concurrency) of the API please see these [docs](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/filesystem/introduction.html).

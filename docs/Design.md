@@ -1,60 +1,21 @@
 # S3-FileSystem
 
-# Hadoop Core Requirements
+`S3-FileSystem` works by storing the data for a single file under a single key in S3.
+The keys have an S3 friendly naming pattern (all keys start with a random [UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier)).
+We refer to these S3 keys as **_physical paths_**.
 
-The Hadoop FileSystem contract in terms of atomicity/consistency/concurrency is detailed [here](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/filesystem/introduction.html#Core_Expectations_of_a_Hadoop_Compatible_FileSystem).
+In order to allow clients to define human-readable hierarchical directory structures, a separate _metadata store_ is used
+to maintain an index between the S3 keys and the human-readable paths. We refer to the human-readable paths as **_logical paths_**.
 
-## Atomicity
+Information about directories _is **only** persisted in the metadata store_.
 
-Hadoop original requirements:
-```
-There are some operations that MUST be atomic. This is because they are often used to implement locking/exclusive access between processes in a cluster.
-1. Creating a file. If the overwrite parameter is false, the check and creation MUST be atomic.
-2. Deleting a file.
-3. Renaming a file.
-4. Renaming a directory.
-5. Creating a single directory with mkdir().
-Recursive directory deletion MAY be atomic. Although HDFS offers atomic recursive directory deletion, none of the other Hadoop FileSystems offer such a guarantee (including local FileSystems).
-Most other operations come with no requirements or guarantees of atomicity.
-```
-**We support atomic rename of files (with the caveat that the metastore and operation log can drift).**
 
-**Atomic creation of file with overwrite parameter set to false *can* be implemented (currently it is not).**
+## Birds eye view of the architecture
 
-## Consistency
-
-Hadoop original requirements:
-```
-1. Create. Once the close() operation on an output stream writing a newly created file has completed, in-cluster operations querying the file metadata and contents MUST immediately see the file and its data.
-
-2. Update. Once the close() operation on an output stream writing a newly created file has completed, in-cluster operations querying the file metadata and contents MUST immediately see the new data.
-
-3. Delete. once a delete() operation on a path other than “/” has completed successfully, it MUST NOT be visible or accessible. Specifically, listStatus(), open() ,rename() and append() operations MUST fail.
-
-4. Delete then create. When a file is deleted then a new file of the same name created, the new file MUST be immediately visible and its contents accessible via the FileSystem APIs.
-
-5. Rename. After a rename() has completed, operations against the new path MUST succeed; attempts to access the data against the old path MUST fail.
-
-6. The consistency semantics inside of the cluster MUST be the same as outside of the cluster. All clients querying a file that is not being actively manipulated MUST see the same metadata and data irrespective of their location.
-```
-**We do not support the `append()` operation. Apart from this we are inline with the Hadoop consistency requirements.**
-
-## Concurrency
-
-Hadoop original requirements:
-```
-There are no guarantees of isolated access to data: if one client is interacting with a remote file and another client changes that file, the changes may or may not be visible.
-```
-**We are inline with Hadoop concurrency requirements.**
-
-# High Level Design
 ![aam s3 fs 3](./diagrams/aam-s3-fs.png)
 
-We will refer to the paths as viewed by clients of the FileSystem as **_logical paths_**.
-We will refer the S3 keys under which we store the client data as **_physical paths_**.
 
-
-## MetadataStoreConfiguration API and Implementation
+### MetadataStoreConfiguration API and Implementation
 
 This layer is responsible for providing configuration information that the concrete MetadataStore implementation requires.
 It is context aware: for example a metadata heavy client(like a M/R job driver or `LoadIncrementalHFiles`) might have different configuration requirements from a data heavy client (a map task). 
@@ -65,7 +26,7 @@ We currently have one implementation:
 The configuration API will be K/V style for the most part, but more specific interfaces for concrete implementations of `MetadataStore` **_may_** exist.
 
 
-## MetadataStore API and Implementation
+### MetadataStore API and Implementation
 
 This layer is responsible for:
 - Maintaining the association between the logical paths and physical paths.
@@ -75,7 +36,7 @@ This layer is responsible for:
    * An operation for listing all logical paths for a given bucket, regardless of parent<->child relationship validity  (think of `fsck` type scenarios).
 
 
-### DynamodDB MetadataStore Implementation.
+#### DynamodDB MetadataStore Implementation.
 
 This is the main implementation of the MetadataStore API and the core part of the FileSystem as an ensemble.
 
@@ -110,7 +71,7 @@ To simplify the implementation we have decided that a single instance of the Dyn
 table and a FileSystem instance will work with a single bucket. Writing to multiple buckets from the same process will imply multiple FileSystem instances. Moving data between multiple buckets will require copying of the data and will not be a metadata operation.
 
 
-### File Object Versioning.
+#### File Object Versioning.
 
 Whenever a new dir/file is created a unique ID is assigned to it. It is also considered to be at version 1.
 
@@ -120,7 +81,7 @@ At the time of the mutation the updated version and id are checked against Dynam
 The version and the unique ID are also persisted by the `MetadataOperationLog` and used by FSCK to determine if the state of the system is consistent.
 
 
-## MetadataOperationLog
+### MetadataOperationLog
 
 This layer is the equivalent of HDFS's FSEditLog.
 It stores all metadata operations related to **_file_** objects.
@@ -135,7 +96,7 @@ The following sequence of actions is always followed when logging file operation
    * If this fails, the operation is **still considered succesfull**.
   
 
-## Hadoop FileSystem Implementation
+### Hadoop FileSystem Implementation
 
 At this layer we are implementing the Hadoop `FileSystem` contract.
 This layer is responsible for:
@@ -143,14 +104,14 @@ This layer is responsible for:
 - Ensuring we use a dispersed key space for all S3 buckets.
 
 
-## PhysicalStorage API
+### PhysicalStorage API
 
 This layer is a simple CRD(create/read/delete no update because files in s3-fs are immutable) API over a blob storage.
 The main implementation is backed by EMRFS.
 S3 eventual consistency is handled by this layer.
 
 
-## FileSystem Tooling and FSCK
+### FileSystem Tooling and FSCK
 
 This layer implements:
  - A CLI similar to `hadoop fs` but with some operations implemented more efficiently. It relies on the MetadataStore Extended API.
@@ -159,4 +120,3 @@ This layer implements:
    * If data is still valid in the `MetadataStore` it will amend the operation log to reflect that state.
    
 Details on [usage](../src/main/java/com/adobe/s3fs/shell/commands/fsck/FsckReadme.md).
-

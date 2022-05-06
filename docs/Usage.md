@@ -1,5 +1,7 @@
 # How to use
 
+Before using, please give our design [docs](./Design.md) a quick read.
+
 ## Binaries and dependencies
 
 For gradle projects add: `implementation group: 'com.adobe.s3fs', name: 'S3-FileSystem', version: '1.0'` in
