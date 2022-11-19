@@ -43,4 +43,9 @@ Read [GitHub's pull request documentation](https://help.github.com/articles/abou
 ## Integration tests
 
 The integration tests use [localstack](https://github.com/localstack/localstack) to emulate cloud services such as S3 and DynamoDB.
-To run integration tests locally you need to have [docker](https://docs.docker.com/docker-for-mac/install/) installed.
+Localstack runs as a [docker](https://www.docker.com/) container.
+
+Steps to run integration tests locally:
+- Install docker [desktop](https://docs.docker.com/get-docker/).
+- Install and start localstack following these [steps](https://docs.localstack.cloud/get-started/#localstack-cli).
+- Run integration tests either from your IDE or though the gradle CLI `./gradle clean integrationTest`.

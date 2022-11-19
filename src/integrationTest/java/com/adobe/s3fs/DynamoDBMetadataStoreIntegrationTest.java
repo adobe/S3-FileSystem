@@ -12,10 +12,6 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import com.adobe.s3fs.common.configuration.FileSystemConfiguration;
 import com.adobe.s3fs.common.configuration.HadoopKeyValueConfiguration;
 import com.adobe.s3fs.common.context.FileSystemContext;
@@ -28,52 +24,28 @@ import com.adobe.s3fs.metastore.internal.dynamodb.DynamoDBMetadataStoreFactory;
 import com.adobe.s3fs.utils.DynamoTable;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.InMemoryMetadataOperationLog;
-
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.google.common.base.Functions;
-import com.google.common.collect.*;
-
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import junit.framework.AssertionFailedError;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.util.ReflectionUtils;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.localstack.LocalStackContainer;
+import org.junit.*;
 
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static org.junit.Assert.*;
+
 public class DynamoDBMetadataStoreIntegrationTest {
 
-  @ClassRule
-  public static Network network = Network.newNetwork();
-
-  @ClassRule
-  public static LocalStackContainer localStackContainer = new LocalStackContainer()
-      .withNetwork(network)
-      .withServices(LocalStackContainer.Service.DYNAMODB, LocalStackContainer.Service.S3)
-      .withNetworkAliases("localstack");
-
   @Rule
-  public DynamoTable dynamoTable = new DynamoTable(ITUtils.amazonDynamoDB(localStackContainer));
+  public DynamoTable dynamoTable = new DynamoTable(ITUtils.amazonDynamoDB());
 
 
   private DynamoDBMetadataStore metadataStore;
@@ -88,7 +60,7 @@ public class DynamoDBMetadataStoreIntegrationTest {
 
   @BeforeClass
   public static void beforeClass() {
-    dynamoDB = ITUtils.amazonDynamoDB(localStackContainer);
+    dynamoDB = ITUtils.amazonDynamoDB();
   }
 
   @Before
@@ -99,7 +71,7 @@ public class DynamoDBMetadataStoreIntegrationTest {
 
     ITUtils.mapBucketToTable(configuration, "bucket", dynamoTable.getTable());
 
-    ITUtils.configureDynamoAccess(localStackContainer, configuration, "bucket");
+    ITUtils.configureDynamoAccess(configuration, "bucket");
 
     ITUtils.configureAsyncOperations(configuration, "bucket", "ctx");
 

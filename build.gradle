@@ -38,9 +38,6 @@ dependencies {
     testImplementation "junit:junit:4.12"
     testImplementation "org.mockito:mockito-core:2.23.4"
     testImplementation "com.tngtech.java:junit-dataprovider:1.13.1"
-    testImplementation "org.testcontainers:localstack:1.12.5"
-    testImplementation group: 'org.testcontainers', name: 'testcontainers', version: "1.9.1"
-    testImplementation group: 'cloud.localstack', name: 'localstack-utils', version: '0.1.15'
     testImplementation group: 'org.apache.hadoop', name: 'hadoop-aws', version: '3.1.1'
     testImplementation "org.apache.hadoop:hadoop-common:3.1.2"
     testImplementation "org.apache.hadoop:hadoop-common:3.1.2:tests"
@@ -208,6 +205,7 @@ signing {
 
 afterEvaluate {
     javadoc.dependsOn compileJava
-    jar.dependsOn test /* , integrationTest */ // remove running of integrationTests for now
-    shadowJar.dependsOn test, sourcesJar, javadocJar /* , integrationTest */ // remove running of integrationTests for now
+    check.dependsOn test, integrationTest
+    jar.dependsOn test, integrationTest
+    shadowJar.dependsOn test, sourcesJar, javadocJar, integrationTest
 }

@@ -12,60 +12,39 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs;
 
-import static com.adobe.s3fs.utils.FileSystemStateChecker.checkFileSystemState;
-import static com.adobe.s3fs.utils.FileSystemStateChecker.expectedDirectory;
-import static com.adobe.s3fs.utils.FileSystemStateChecker.expectedFile;
-import static com.adobe.s3fs.utils.OperationLogStateChecker.checkOperationLogState;
-import static com.adobe.s3fs.utils.stream.StreamUtils.uncheckedRunnable;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import com.adobe.s3fs.common.runtime.FileSystemRuntimeFactory;
 import com.adobe.s3fs.filesystem.HadoopFileSystemAdapter;
 import com.adobe.s3fs.utils.DynamoTable;
 import com.adobe.s3fs.utils.ExpectedFSObject;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.S3Bucket;
-
 import com.amazonaws.services.s3.AmazonS3;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.log4j.BasicConfigurator;
+import org.apache.hadoop.fs.*;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.junit.Before;
-import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.localstack.LocalStackContainer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static com.adobe.s3fs.utils.FileSystemStateChecker.*;
+import static com.adobe.s3fs.utils.OperationLogStateChecker.checkOperationLogState;
+import static com.adobe.s3fs.utils.stream.StreamUtils.uncheckedRunnable;
+import static org.junit.Assert.*;
 
 public class FileSystemIntegrationTest {
 
@@ -73,26 +52,17 @@ public class FileSystemIntegrationTest {
     LogManager.getRootLogger().setLevel(Level.INFO);
   }
 
-  @ClassRule
-  public static Network network = Network.newNetwork();
-
-  @ClassRule
-  public static LocalStackContainer localStackContainer = new LocalStackContainer()
-      .withNetwork(network)
-      .withServices(LocalStackContainer.Service.DYNAMODB, LocalStackContainer.Service.S3)
-      .withNetworkAliases("localstack");
-
   @Rule
   public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
   @Rule
-  public DynamoTable dynamoTable1 = new DynamoTable(ITUtils.amazonDynamoDB(localStackContainer));
+  public DynamoTable dynamoTable1 = new DynamoTable(ITUtils.amazonDynamoDB());
 
   @Rule
-  public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3());
 
   @Rule
-  public S3Bucket operationLogBucket = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  public S3Bucket operationLogBucket = new S3Bucket(ITUtils.amazonS3());
 
   private Configuration configuration;
 
@@ -102,20 +72,20 @@ public class FileSystemIntegrationTest {
 
   @Before
   public void setup() throws IOException {
-    s3 = ITUtils.amazonS3(localStackContainer);
+    s3 = ITUtils.amazonS3();
 
     configuration = new Configuration(false);
     configuration.setClass("fs.s3.impl", HadoopFileSystemAdapter.class, FileSystem.class);
     configuration.setBoolean("fs.s3.impl.disable.cache", true);
     ITUtils.configureAsyncOperations(configuration, bucket1.getBucket(), "ctx");
 
-    ITUtils.configureDynamoAccess(localStackContainer, configuration, bucket1.getBucket());
+    ITUtils.configureDynamoAccess(configuration, bucket1.getBucket());
     ITUtils.mapBucketToTable(configuration, bucket1.getBucket(), dynamoTable1.getTable());
 
     ITUtils.configureS3OperationLog(configuration, bucket1.getBucket(), operationLogBucket.getBucket());
-    ITUtils.configureS3OperationLogAccess(localStackContainer, configuration, bucket1.getBucket());
+    ITUtils.configureS3OperationLogAccess(configuration, bucket1.getBucket());
 
-    ITUtils.configureS3AAsUnderlyingFileSystem(localStackContainer, configuration, bucket1.getBucket(), temporaryFolder.getRoot().toString());
+    ITUtils.configureS3AAsUnderlyingFileSystem(configuration, bucket1.getBucket(), temporaryFolder.getRoot().toString());
 
     ITUtils.configureSuffixCount(configuration, bucket1.getBucket(), 10);
 
