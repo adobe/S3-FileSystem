@@ -24,7 +24,8 @@ jobs:
           java-version: 11
           distribution: 'adopt'
       - name: Setup localstack
-          uses: ./.github/actions/setup-localstack
+          run: ./bin/setup_localstack.sh
+          shell: bash
 
       - name: Verify build
         run: ./gradlew clean check --stacktrace
