@@ -27,8 +27,8 @@ jobs:
           java-version: 11
           distribution: 'adopt'
       - name: Setup localstack
-          run: ./bin/setup_localstack.sh
-          shell: bash
+        run: ./bin/setup_localstack.sh
+        shell: bash
 
       # Publish through gradle
       - name: Publish with Gradle
