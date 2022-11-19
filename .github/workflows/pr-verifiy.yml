@@ -14,6 +14,11 @@ on: pull_request
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
     steps:
       - uses: actions/checkout@v3
         with:
@@ -23,9 +28,6 @@ jobs:
         with:
           java-version: 11
           distribution: 'adopt'
-      - name: Setup localstack
-        run: ./bin/setup_localstack.sh
-        shell: bash
 
       - name: Verify build
         run: ./gradlew clean check --stacktrace
