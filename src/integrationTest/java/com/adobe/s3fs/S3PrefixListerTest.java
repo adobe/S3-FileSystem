@@ -32,11 +32,12 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
-import org.junit.*;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.localstack.LocalStackContainer;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -49,22 +50,13 @@ import java.util.stream.Stream;
 
 public class S3PrefixListerTest {
 
-  @ClassRule public static Network network = Network.newNetwork();
-
-  @ClassRule
-  public static LocalStackContainer localStackContainer =
-      new LocalStackContainer()
-          .withNetwork(network)
-          .withServices(LocalStackContainer.Service.S3)
-          .withNetworkAliases("localstack");
-
   static {
     LogManager.getRootLogger().setLevel(Level.INFO);
   }
 
   @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-  @Rule public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  @Rule public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3());
 
   private S3PrefixLister s3PrefixLister;
 
@@ -119,7 +111,7 @@ public class S3PrefixListerTest {
 
   @Before
   public void setup() throws IOException {
-    s3 = ITUtils.amazonS3(localStackContainer);
+    s3 = ITUtils.amazonS3();
 
     s3Spy = Mockito.spy(s3);
 
@@ -130,7 +122,7 @@ public class S3PrefixListerTest {
     configuration.setBoolean("fs.s3a.multiobjectdelete.enable", false);
 
     ITUtils.configureS3AAsUnderlyingFileSystem(
-        localStackContainer, configuration, bucket1.getBucket(), temporaryFolder.getRoot().toString());
+            configuration, bucket1.getBucket(), temporaryFolder.getRoot().toString());
 
     fileSystem = pathInBucket(bucket1.getBucket(), "").getFileSystem(configuration);
 

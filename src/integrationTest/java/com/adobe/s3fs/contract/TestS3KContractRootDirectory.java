@@ -18,21 +18,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.contract.AbstractContractRootDirectoryTest;
 import org.apache.hadoop.fs.contract.AbstractFSContract;
 import org.apache.hadoop.fs.contract.ContractTestUtils;
-import org.junit.ClassRule;
 import org.junit.rules.TemporaryFolder;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.localstack.LocalStackContainer;
 
 public class TestS3KContractRootDirectory extends AbstractContractRootDirectoryTest {
-
-  @ClassRule
-  public static Network network = Network.newNetwork();
-
-  @ClassRule
-  public static LocalStackContainer localStackContainer = new LocalStackContainer()
-      .withNetwork(network)
-      .withServices(LocalStackContainer.Service.DYNAMODB, LocalStackContainer.Service.S3)
-      .withNetworkAliases("localstack");
 
   public TemporaryFolder temporaryFolder;
 
@@ -51,7 +39,7 @@ public class TestS3KContractRootDirectory extends AbstractContractRootDirectoryT
 
   @Override
   protected AbstractFSContract createContract(Configuration configuration) {
-    ContractUtils.configureFullyFunctionalFileSystem(configuration, localStackContainer, temporaryFolder.getRoot().toString());
+    ContractUtils.configureFullyFunctionalFileSystem(configuration, temporaryFolder.getRoot().toString());
     return new S3KFileSystemContract(configuration);
   }
 
