@@ -12,36 +12,18 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs;
 
-import static com.adobe.s3fs.utils.FileSystemStateChecker.checkFileSystemState;
-import static com.adobe.s3fs.utils.FileSystemStateChecker.expectedDirectory;
-import static com.adobe.s3fs.utils.FileSystemStateChecker.expectedFile;
-import static com.adobe.s3fs.utils.OperationLogStateChecker.checkOperationLogState;
-import static com.adobe.s3fs.utils.stream.StreamUtils.uncheckedRunnable;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import com.adobe.s3fs.common.runtime.FileSystemRuntimeFactory;
 import com.adobe.s3fs.filesystem.HadoopFileSystemAdapter;
 import com.adobe.s3fs.utils.DynamoTable;
 import com.adobe.s3fs.utils.ExpectedFSObject;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.S3Bucket;
-
 import com.amazonaws.services.s3.AmazonS3;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.log4j.BasicConfigurator;
+import org.apache.hadoop.fs.*;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.junit.Before;
@@ -55,17 +37,18 @@ import org.testcontainers.containers.localstack.LocalStackContainer;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static com.adobe.s3fs.utils.FileSystemStateChecker.*;
+import static com.adobe.s3fs.utils.ITUtils.LOCALSTACK_IMAGE;
+import static com.adobe.s3fs.utils.OperationLogStateChecker.checkOperationLogState;
+import static com.adobe.s3fs.utils.stream.StreamUtils.uncheckedRunnable;
+import static org.junit.Assert.*;
 
 public class FileSystemIntegrationTest {
 
@@ -77,7 +60,7 @@ public class FileSystemIntegrationTest {
   public static Network network = Network.newNetwork();
 
   @ClassRule
-  public static LocalStackContainer localStackContainer = new LocalStackContainer()
+  public static LocalStackContainer localStackContainer = new LocalStackContainer(LOCALSTACK_IMAGE)
       .withNetwork(network)
       .withServices(LocalStackContainer.Service.DYNAMODB, LocalStackContainer.Service.S3)
       .withNetworkAliases("localstack");
