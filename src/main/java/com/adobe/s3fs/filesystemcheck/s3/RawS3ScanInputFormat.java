@@ -14,18 +14,18 @@ package com.adobe.s3fs.filesystemcheck.s3;
 
 import com.adobe.s3fs.utils.aws.SimpleRetryPolicies;
 import com.adobe.s3fs.utils.aws.s3.StreamingPrefixKeysIterator;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import com.adobe.s3fs.utils.collections.ListUtils;
 import com.adobe.s3fs.utils.mapreduce.SerializableVoid;
 import com.adobe.s3fs.utils.mapreduce.TextArrayWritable;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.google.common.collect.FluentIterable;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapreduce.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,7 +35,10 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3ObjectSummary> {
+import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.*;
+import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.S3_RETRIES;
+
+public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3ObjectLocation> {
 
   public static final String PARTITION_COUNT_PROP = "fs.s3k.raws3.scaninputformat.partition.count";
   public static final String BUCKET_PROP = "fs.s3k.raws3.scaninputformat.bucket";
@@ -45,7 +48,7 @@ public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3Object
   private static final Logger LOG = LoggerFactory.getLogger(RawS3ScanInputFormat.class);
 
   @Override
-  public List<InputSplit> getSplits(JobContext jobContext) throws IOException, InterruptedException {
+  public List<InputSplit> getSplits(JobContext jobContext) {
     List<InputSplit> splits = new ArrayList<>();
     List<String> prefixAtoms = new SingleDigitS3PrefixPartitioner().prefixes();
 
@@ -85,33 +88,40 @@ public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3Object
   }
 
   @Override
-  public RecordReader<SerializableVoid, S3ObjectSummary> createRecordReader(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+  public RecordReader<SerializableVoid, S3ObjectLocation> createRecordReader(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) {
     return new RawS3ScanRecordReader();
   }
 
-  private static class RawS3ScanRecordReader extends RecordReader<SerializableVoid, S3ObjectSummary> {
+  private static class RawS3ScanRecordReader extends RecordReader<SerializableVoid, S3ObjectLocation> {
 
-    private AmazonS3 amazonS3;
-    private Iterator<S3ObjectSummary> objectIterator;
-    private S3ObjectSummary current;
+    private S3Client s3Client;
+    private Iterator<S3ObjectLocation> objectIterator;
+    private S3ObjectLocation current;
 
     @Override
-    public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+    public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) {
+      Configuration config = taskAttemptContext.getConfiguration();
+
+      final int baseDelay = config.getInt(S3_BACKOFF_BASE_DELAY, 10);
+      final int maxDelay = config.getInt(S3_BACKOFF_MAX_DELAY, 30000);
+      final int retries = config.getInt(S3_RETRIES, 50);
+      final int maxConnections = config.getInt(S3_MAX_CONNECTIONS, 1000);
+
+      RetryPolicy retryPolicy = SimpleRetryPolicies.fullJitter(baseDelay, maxDelay, retries);
+      this.s3Client = DefaultS3ClientFactory.INSTANCE.newS3Client(retryPolicy, maxConnections);
+
       String bucket = taskAttemptContext.getConfiguration().get(BUCKET_PROP);
-      this.amazonS3 = AmazonS3ClientBuilder.standard()
-          .withClientConfiguration(new ClientConfiguration().withRetryPolicy(SimpleRetryPolicies.fullJitter(10, 30000, 50)))
-          .build();
       List<String> prefixes = ((RawS3ScanInputSplit) inputSplit).prefixes.toStringList();
       this.objectIterator = FluentIterable.from(prefixes)
           .transformAndConcat(prefix -> () -> {
             LOG.info("Iterating over prefix {}", prefix);
-            return new StreamingPrefixKeysIterator(amazonS3, bucket, prefix);
+            return new StreamingPrefixKeysIterator(s3Client, bucket, prefix);
           })
           .iterator();
     }
 
     @Override
-    public boolean nextKeyValue() throws IOException, InterruptedException {
+    public boolean nextKeyValue() {
       if (!objectIterator.hasNext()) {
         return false;
       }
@@ -120,23 +130,25 @@ public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3Object
     }
 
     @Override
-    public SerializableVoid getCurrentKey() throws IOException, InterruptedException {
+    public SerializableVoid getCurrentKey() {
       return SerializableVoid.INSTANCE;
     }
 
     @Override
-    public S3ObjectSummary getCurrentValue() throws IOException, InterruptedException {
+    public S3ObjectLocation getCurrentValue() {
       return current;
     }
 
     @Override
-    public float getProgress() throws IOException, InterruptedException {
+    public float getProgress() {
       return 0;
     }
 
     @Override
-    public void close() throws IOException {
-      amazonS3.shutdown();
+    public void close() {
+      try (S3Client s3ClientCopy = s3Client) {
+        // let try-with-resources close it
+      }
     }
   }
 
@@ -151,12 +163,12 @@ public class RawS3ScanInputFormat extends InputFormat<SerializableVoid, S3Object
     }
 
     @Override
-    public long getLength() throws IOException, InterruptedException {
+    public long getLength() {
       return 0;
     }
 
     @Override
-    public String[] getLocations() throws IOException, InterruptedException {
+    public String[] getLocations() {
       return new String[0];
     }
 

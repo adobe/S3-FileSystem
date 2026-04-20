@@ -107,7 +107,7 @@ public class FileSystemCheckVerifyReducerTest {
     // Act
     reducer.reduce(toText(uuid), Collections.singletonList(meta), mockContext);
     // Verify
-    verifyZeroInteractions(mockMultipleOutputs);
+    verifyNoInteractions(mockMultipleOutputs);
     verify(mockContext, times(1)).getCounter(eq(FsckCounters.PARTIAL_RESTORE_INVALID_STATE_META_ONLY));
   }
 
@@ -185,7 +185,7 @@ public class FileSystemCheckVerifyReducerTest {
     // Act
     reducer.reduce(toText(uuid), Arrays.asList(opLog, meta), mockContext);
     // Verify
-    verifyZeroInteractions(mockMultipleOutputs);
+    verifyNoInteractions(mockMultipleOutputs);
     verify(mockContext, times(1)).getCounter(eq(FsckCounters.PARTIAL_RESTORE_INVALID_STATE_OPLOG_AND_META_WITH_NO_PHY_DATA));
   }
 
@@ -256,7 +256,7 @@ public class FileSystemCheckVerifyReducerTest {
     // Act
     reducer.reduce(toText(uuid), Arrays.asList(opLog, meta), mockContext);
     // Verify
-    verifyZeroInteractions(mockMultipleOutputs);
+    verifyNoInteractions(mockMultipleOutputs);
   }
 
   @Test
@@ -270,7 +270,7 @@ public class FileSystemCheckVerifyReducerTest {
     // Act
     reducer.reduce(toText(uuid), Arrays.asList(meta, s3), mockContext);
     // Verify
-    verifyZeroInteractions(mockMultipleOutputs);
+    verifyNoInteractions(mockMultipleOutputs);
     verify(mockContext, times(1))
         .getCounter(eq(FsckCounters.PARTIAL_RESTORE_INVALID_STATE_META_AND_PHY_DATA));
   }
@@ -286,7 +286,7 @@ public class FileSystemCheckVerifyReducerTest {
     // Act
     reducer.reduce(toText(uuid), Arrays.asList(meta, s3), mockContext);
     // Verify
-    verifyZeroInteractions(mockMultipleOutputs);
+    verifyNoInteractions(mockMultipleOutputs);
     verify(mockContext, times(1))
         .getCounter(eq(FsckCounters.PARTIAL_RESTORE_INVALID_STATE_META_AND_PHY_DATA));
   }

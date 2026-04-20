@@ -24,7 +24,6 @@ import com.adobe.s3fs.metastore.internal.dynamodb.DynamoDBMetadataStoreFactory;
 import com.adobe.s3fs.utils.DynamoTable;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.InMemoryMetadataOperationLog;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -68,13 +67,6 @@ public class DynamoDBMetadataStoreIntegrationTest {
 
   private static final String BUCKET = "bucket";
 
-  private static AmazonDynamoDB dynamoDB;
-
-  @BeforeClass
-  public static void beforeClass() {
-    dynamoDB = ITUtils.amazonDynamoDB(localStackContainer);
-  }
-
   @Before
   public void setup() {
     Configuration configuration = new Configuration(false);
@@ -108,8 +100,10 @@ public class DynamoDBMetadataStoreIntegrationTest {
   }
 
   @After
-  public void tearDown() throws Exception {
-    metadataStore.close();
+  public void tearDown() {
+    try (DynamoDBMetadataStore metadataStoreCopy = metadataStore) {
+      // let try-with-resources close it
+    }
   }
 
   @Test

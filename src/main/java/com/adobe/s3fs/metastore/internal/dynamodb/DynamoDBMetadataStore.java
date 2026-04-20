@@ -25,8 +25,6 @@ import com.google.common.collect.Iterables;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.Path;
 
-import java.io.IOException;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -131,7 +129,7 @@ public class DynamoDBMetadataStore implements MetadataStoreExtended {
     Preconditions.checkArgument(object instanceof VersionedObject);
     VersionedObject versionedObject = (VersionedObject) object;
 
-    boolean successful = false;
+    boolean successful;
     if (object.metadata().isDirectory()) {
       successful = metadataTreeOps.deleteObjectTree(versionedObject, callback);
     } else {
@@ -163,8 +161,10 @@ public class DynamoDBMetadataStore implements MetadataStoreExtended {
   }
 
   @Override
-  public void close() throws IOException {
-    metadataOps.close();
+  public void close() {
+    try (MetadataOperations metadataOpsCopy = metadataOps) {
+      // let try-with-resources close it
+    }
   }
 
 }

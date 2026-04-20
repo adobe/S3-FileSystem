@@ -19,11 +19,14 @@ import com.adobe.s3fs.filesystemcheck.s3.SingleDigitS3PrefixPartitioner;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.S3Bucket;
 import com.adobe.s3fs.utils.exceptions.UncheckedException;
-import com.amazonaws.SdkClientException;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.ListObjectsRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -66,15 +69,13 @@ public class S3PrefixListerTest {
 
   @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-  @Rule public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  @Rule public S3Bucket bucket1 = new S3Bucket(ITUtils.s3Client(localStackContainer));
 
   private S3PrefixLister s3PrefixLister;
 
-  private Configuration configuration;
+  private S3Client s3;
 
-  private AmazonS3 s3;
-
-  private AmazonS3 s3Spy;
+  private S3Client s3Spy;
 
   private FileSystem fileSystem;
 
@@ -91,15 +92,16 @@ public class S3PrefixListerTest {
   }
 
   private static List<String> readContentsFromPrefixes(
-      AmazonS3 s3, String bucket, String startingPrefix) {
-    return ITUtils.listFully(s3, bucket).stream()
-        .filter(obj -> obj.getKey().startsWith(startingPrefix))
-        .flatMap(obj -> readS3Object(s3, obj.getBucketName(), obj.getKey()))
+      S3Client s3Client, String bucket, String startingPrefix) {
+    return ITUtils.listFully(s3Client, bucket).stream()
+        .filter(obj -> obj.key().startsWith(startingPrefix))
+        .flatMap(obj -> readS3Object(s3Client, bucket, obj.key()))
         .collect(Collectors.toList());
   }
 
-  private static Stream<String> readS3Object(AmazonS3 s3, String bucket, String prefix) {
-    try (InputStream is = s3.getObject(bucket, prefix).getObjectContent();
+  private static Stream<String> readS3Object(S3Client s3Client, String bucket, String prefix) {
+    try (ResponseInputStream<GetObjectResponse> is = s3Client.getObject(
+             GetObjectRequest.builder().bucket(bucket).key(prefix).build());
         InputStreamReader reader = new InputStreamReader(is, StandardCharsets.UTF_8);
         BufferedReader br = new BufferedReader(reader)) {
       return IOUtils.readLines(br).stream();
@@ -121,11 +123,11 @@ public class S3PrefixListerTest {
 
   @Before
   public void setup() throws IOException {
-    s3 = ITUtils.amazonS3(localStackContainer);
+    s3 = ITUtils.s3Client(localStackContainer);
 
     s3Spy = Mockito.spy(s3);
 
-    configuration = new Configuration(false);
+    Configuration configuration = new Configuration(false);
     configuration.setClass("fs.s3.impl", S3AFileSystem.class, FileSystem.class);
     configuration.setBoolean("fs.s3.impl.disable.cache", true);
     // Need below config to overcome an issue when closing zero-bytes streams
@@ -146,9 +148,9 @@ public class S3PrefixListerTest {
 
   @Test(expected = UncheckedException.class)
   public void testThrowsExceptionWhenCallingHasNestFromUnderlyingIterable() {
-    Mockito.doThrow(new SdkClientException("Failed List!"))
+    Mockito.doThrow(SdkClientException.builder().message("Failed List!").build())
         .when(s3Spy)
-        .listObjects(Mockito.any(ListObjectsRequest.class));
+        .listObjectsV2(Mockito.any(ListObjectsV2Request.class));
 
     s3PrefixLister.list(bucket1.getBucket(), buffer);
   }
@@ -156,20 +158,20 @@ public class S3PrefixListerTest {
   @Test(expected = UncheckedException.class)
   public void testThrowsExceptionWhenCallingNextFromUnderlyingIterable() {
     // Mock iterator
-    Iterator<S3ObjectSummary> mockItrObjSummaries = Mockito.mock(Iterator.class);
+    Iterator<S3Object> mockItrObjSummaries = Mockito.mock(Iterator.class);
     Mockito.when(mockItrObjSummaries.hasNext()).thenReturn(true);
-    Mockito.when(mockItrObjSummaries.next()).thenThrow(new SdkClientException("Next failed!"));
+    Mockito.when(mockItrObjSummaries.next()).thenThrow(SdkClientException.builder().message("Next failed!").build());
     // Mock List
-    List<S3ObjectSummary> mockListObjSummaries = Mockito.mock(List.class);
+    List<S3Object> mockListObjSummaries = Mockito.mock(List.class);
     Mockito.when(mockListObjSummaries.iterator()).thenReturn(mockItrObjSummaries);
-    // Mock ObjectListing
-    ObjectListing mockListing = Mockito.mock(ObjectListing.class);
-    Mockito.when(mockListing.getObjectSummaries()).thenReturn(mockListObjSummaries);
+    // Mock ListObjectsV2Response
+    ListObjectsV2Response mockListing = Mockito.mock(ListObjectsV2Response.class);
+    Mockito.when(mockListing.contents()).thenReturn(mockListObjSummaries);
     Mockito.when(mockListing.isTruncated()).thenReturn(false);
 
     Mockito.doReturn(mockListing)
         .when(s3Spy)
-        .listObjects(Mockito.any(ListObjectsRequest.class));
+        .listObjectsV2(Mockito.any(ListObjectsV2Request.class));
 
     s3PrefixLister.list(bucket1.getBucket(), buffer);
   }
@@ -190,7 +192,7 @@ public class S3PrefixListerTest {
     boolean status = s3PrefixLister.list(bucket1.getBucket(), buffer);
 
     // Verify
-    Assert.assertTrue("Listing should have finished succesfully!", status);
+    Assert.assertTrue("Listing should have finished successfully!", status);
     List<String> s3Objects = readContentsFromPrefixes(s3, bucket1.getBucket(), "buffer");
     verifyList(Arrays.asList(f1.toString(), f11.toString(), f111.toString()), s3Objects);
   }
@@ -216,7 +218,7 @@ public class S3PrefixListerTest {
 
     // Act
     boolean status = s3PrefixLister.list(bucket1.getBucket(), buffer);
-    Assert.assertTrue("Listing should have finished succesfully!", status);
+    Assert.assertTrue("Listing should have finished successfully!", status);
 
     List<String> s3Objects = readContentsFromPrefixes(s3, bucket1.getBucket(), "buffer");
     verifyList(

@@ -15,12 +15,13 @@ package com.adobe.s3fs.filesystemcheck.mapreduce;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.LogicalObjectWritable;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.SourceType;
 import com.adobe.s3fs.filesystemcheck.mapreduce.multioutputs.MultiOutputsFactory;
+import com.adobe.s3fs.filesystemcheck.s3.DefaultS3ClientFactory;
 import com.adobe.s3fs.filesystemcheck.s3.S3ClientFactory;
-import com.adobe.s3fs.utils.aws.s3.S3Helpers;
 import com.adobe.s3fs.filesystemcheck.utils.UriMetadataPair;
+import com.adobe.s3fs.metastore.api.ObjectOperationType;
+import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3Client;
+import com.adobe.s3fs.utils.aws.s3.S3Helpers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.io.Text;
@@ -34,22 +35,11 @@ import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.S3_
 import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.S3_OUTPUT_SUFFIX;
 import static com.adobe.s3fs.filesystemcheck.mapreduce.FsckCounters.*;
 
-import com.adobe.s3fs.metastore.api.OperationLogEntryState;
-import com.adobe.s3fs.metastore.api.ObjectOperationType;
-
 public class FileSystemCheckS3Mapper extends AbstractFsckS3Mapper {
 
   // Empty constructor needed by Hadoop Framework
   public FileSystemCheckS3Mapper() {
-    super(
-        (retryPolicy, maxConnections) ->
-            AmazonS3Client.builder()
-                .withClientConfiguration(
-                    new ClientConfiguration()
-                        .withRetryPolicy(retryPolicy)
-                        .withMaxConnections(maxConnections))
-                .build(),
-        MultipleOutputs::new);
+    super(DefaultS3ClientFactory.INSTANCE, MultipleOutputs::new);
   }
 
   @VisibleForTesting

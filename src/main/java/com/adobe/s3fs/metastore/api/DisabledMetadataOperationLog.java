@@ -12,7 +12,6 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.api;
 
-import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -61,7 +60,6 @@ public class DisabledMetadataOperationLog implements MetadataOperationLog {
   }
 
   @Override
-  public void close() throws IOException {
-
+  public void close() {
   }
 }

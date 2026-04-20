@@ -12,15 +12,15 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.filesystemcheck.s3;
 
-import com.amazonaws.retry.RetryPolicy;
-import com.amazonaws.services.s3.AmazonS3;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.services.s3.S3Client;
 
-/** Factory for creation of {@link AmazonS3} client instances. */
+/** Factory for creation of {@link S3Client} client instances. */
 public interface S3ClientFactory {
   /**
    * @param retryPolicy Policy used during retries
    * @param maxConnections maximum number of connections
    * @return S3 client
    */
-  AmazonS3 newS3Client(RetryPolicy retryPolicy, int maxConnections);
+  S3Client newS3Client(RetryPolicy retryPolicy, int maxConnections);
 }

@@ -12,22 +12,22 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.when;
-
 import com.adobe.s3fs.common.configuration.FileSystemConfiguration;
 import com.adobe.s3fs.common.configuration.KeyValueConfiguration;
-
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.FullJitterBackoffStrategy;
 
-import java.util.Random;
+import java.net.URI;
+import java.util.Optional;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.when;
 
 public class DynamoDBStorageConfigurationTest {
 
@@ -39,99 +39,103 @@ public class DynamoDBStorageConfigurationTest {
   @Mock
   private KeyValueConfiguration mockContextAwareConfiguration;
 
-  private Random random = new Random(0);
-
   @Before
   public void setup() {
     MockitoAnnotations.initMocks(this);
     this.dynamoDBStorageConfiguration = new DynamoDBStorageConfiguration(mockConfiguration);
-
     when(mockConfiguration.contextAware()).thenReturn(mockContextAwareConfiguration);
-
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.BASE_EXPONENTIAL_DELAY_PROP,
-                                  DynamoDBStorageConfiguration.DEFAULT_BASE_EXPONENTIAL_DELAY))
-        .thenReturn(Math.abs(random.nextInt()));
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_EXPONENTIAL_DELAY,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_EXPONENTIAL_DELAY))
-        .thenReturn(Math.abs(random.nextInt()));
   }
 
   @Test
   public void testCorrectRetryPolicyIsConfiguredEqualJitter() {
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_RETRIES,
-                                              DynamoDBStorageConfiguration.DEFAULT_MAX_RETRIES))
-        .thenReturn(Math.abs(random.nextInt()));
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_HTTP_CONNECTIONS,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_HTTP_CONNECTIONS))
-        .thenReturn(Math.abs(random.nextInt()));
-    when(
-        mockContextAwareConfiguration.getBoolean(DynamoDBStorageConfiguration.USE_FULL_JITTER_BACKOFF ,
-                                     DynamoDBStorageConfiguration.DEFAULT_USE_FULL_JITTER))
-        .thenReturn(false);
+    when(mockContextAwareConfiguration.getBoolean(DynamoDBStorageConfiguration.USE_FULL_JITTER_BACKOFF,
+            DynamoDBStorageConfiguration.DEFAULT_USE_FULL_JITTER))
+            .thenReturn(false);
 
-    ClientConfiguration clientConfiguration = dynamoDBStorageConfiguration.getClientConfigurationForTable();
-
-    assertTrue(clientConfiguration.getRetryPolicy().getBackoffStrategy()
-                   instanceof PredefinedBackoffStrategies.EqualJitterBackoffStrategy);
+    RetryPolicy retryPolicy = dynamoDBStorageConfiguration.getRetryPolicy();
+    assertNotNull(retryPolicy);
+    assertTrue(retryPolicy.backoffStrategy() instanceof EqualJitterBackoffStrategy);
   }
 
   @Test
   public void testCorrectRetryPolicyIsConfiguredFullJitter() {
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_RETRIES,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_RETRIES))
-        .thenReturn(Math.abs(random.nextInt()));
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_HTTP_CONNECTIONS,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_HTTP_CONNECTIONS))
-        .thenReturn(Math.abs(random.nextInt()));
-    when(
-        mockContextAwareConfiguration.getBoolean(DynamoDBStorageConfiguration.USE_FULL_JITTER_BACKOFF,
-                                     DynamoDBStorageConfiguration.DEFAULT_USE_FULL_JITTER))
-        .thenReturn(true);
+    when(mockContextAwareConfiguration.getBoolean(DynamoDBStorageConfiguration.USE_FULL_JITTER_BACKOFF,
+            DynamoDBStorageConfiguration.DEFAULT_USE_FULL_JITTER))
+            .thenReturn(true);
 
-    ClientConfiguration clientConfiguration = dynamoDBStorageConfiguration.getClientConfigurationForTable();
-
-    assertTrue(clientConfiguration.getRetryPolicy().getBackoffStrategy()
-                   instanceof PredefinedBackoffStrategies.FullJitterBackoffStrategy);
+    RetryPolicy retryPolicy = dynamoDBStorageConfiguration.getRetryPolicy();
+    assertNotNull(retryPolicy);
+    assertTrue(retryPolicy.backoffStrategy() instanceof FullJitterBackoffStrategy);
   }
 
   @Test
   public void testCorrectMaxRetriesIsConfigured() {
-    int randMaxRetries = Math.abs(random.nextInt());
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_RETRIES ,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_RETRIES))
-        .thenReturn(randMaxRetries);
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_HTTP_CONNECTIONS ,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_HTTP_CONNECTIONS))
-        .thenReturn(Math.abs(random.nextInt()));
+    Integer randomMaxRetries = 99;
+    when(mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_RETRIES,
+            DynamoDBStorageConfiguration.DEFAULT_MAX_RETRIES))
+            .thenReturn(randomMaxRetries);
 
-    ClientConfiguration clientConfiguration = dynamoDBStorageConfiguration.getClientConfigurationForTable();
-
-    assertEquals(randMaxRetries, clientConfiguration.getRetryPolicy().getMaxErrorRetry());
-    assertTrue(clientConfiguration.getRetryPolicy().isMaxErrorRetryInClientConfigHonored());
+    RetryPolicy retryPolicy = dynamoDBStorageConfiguration.getRetryPolicy();
+    assertEquals(randomMaxRetries, retryPolicy.numRetries());
   }
 
   @Test
-  public void testCorrectMaxHTTPConnectionsIsConfigured() {
-    int randMaxHTTPConnections = Math.abs(random.nextInt());
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_HTTP_CONNECTIONS ,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_HTTP_CONNECTIONS))
-        .thenReturn(randMaxHTTPConnections);
-    when
-        (mockContextAwareConfiguration.getInt(DynamoDBStorageConfiguration.MAX_RETRIES ,
-                                  DynamoDBStorageConfiguration.DEFAULT_MAX_RETRIES))
-        .thenReturn(Math.abs(random.nextInt()));
+  public void testEndpointConfiguration() {
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_ENDPOINT, ""))
+        .thenReturn("http://localhost:8000");
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_SIGNING_REGION, ""))
+            .thenReturn("us-west-1");
 
-    ClientConfiguration clientConfiguration = dynamoDBStorageConfiguration.getClientConfigurationForTable();
+    Optional<DynamoDBStorageConfiguration.EndpointConfiguration> endpoint =
+            dynamoDBStorageConfiguration.getEndPointConfiguration();
+    assertTrue(endpoint.isPresent());
+    DynamoDBStorageConfiguration.EndpointConfiguration endpointConfiguration = endpoint.get();
+    assertEquals(URI.create("http://localhost:8000"), endpointConfiguration.getServiceEndpoint());
+    assertEquals("us-west-1", endpointConfiguration.getSigningRegion().id());
+  }
 
-    assertEquals(randMaxHTTPConnections, clientConfiguration.getMaxConnections());
+  @Test
+  public void testEndpointConfigurationReturnsEmptyWhenEndpointNotSet() {
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_ENDPOINT, ""))
+        .thenReturn("");
+
+    Optional<DynamoDBStorageConfiguration.EndpointConfiguration> endpoint =
+            dynamoDBStorageConfiguration.getEndPointConfiguration();
+    assertFalse(endpoint.isPresent());
+  }
+
+  @Test
+  public void testEndpointConfigurationReturnsEmptyWhenRegionNotSet() {
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_ENDPOINT, ""))
+            .thenReturn("http://localhost:8000");
+
+    Optional<DynamoDBStorageConfiguration.EndpointConfiguration> endpoint =
+            dynamoDBStorageConfiguration.getEndPointConfiguration();
+    assertFalse(endpoint.isPresent());
+  }
+
+  @Test
+  public void testCredentialsProviderConfiguration() {
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_ACCESS_KEY_ID, ""))
+        .thenReturn("testAccessKey");
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_SECRET_ACCESS_KEY, ""))
+        .thenReturn("testSecretKey");
+
+    Optional<AwsCredentialsProvider> credentialsProvider = dynamoDBStorageConfiguration.getCredentialsProvider();
+    assertTrue(credentialsProvider.isPresent());
+    assertNotNull(credentialsProvider.get().resolveCredentials());
+    assertEquals("testAccessKey", credentialsProvider.get().resolveCredentials().accessKeyId());
+    assertEquals("testSecretKey", credentialsProvider.get().resolveCredentials().secretAccessKey());
+  }
+
+  @Test
+  public void testCredentialsProviderReturnsEmptyWhenNotSet() {
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_ACCESS_KEY_ID, ""))
+        .thenReturn("");
+    when(mockConfiguration.getString(DynamoDBStorageConfiguration.AWS_SECRET_ACCESS_KEY, ""))
+        .thenReturn("");
+
+    Optional<AwsCredentialsProvider> credentialsProvider = dynamoDBStorageConfiguration.getCredentialsProvider();
+    assertFalse(credentialsProvider.isPresent());
   }
 }

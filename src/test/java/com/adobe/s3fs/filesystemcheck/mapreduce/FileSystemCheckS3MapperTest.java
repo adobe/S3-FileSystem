@@ -13,24 +13,19 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.filesystemcheck.mapreduce;
 
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.LogicalObjectWritable;
+import com.adobe.s3fs.filesystemcheck.mapreduce.multioutputs.MultiOutputsFactory;
+import com.adobe.s3fs.filesystemcheck.s3.RawS3ScanInputFormat;
+import com.adobe.s3fs.metastore.api.ObjectOperationType;
+import com.adobe.s3fs.metastore.api.OperationLogEntryState;
+import com.adobe.s3fs.metastore.api.VersionedObjectHandle;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import com.adobe.s3fs.utils.mapreduce.SerializableVoid;
 import com.adobe.s3fs.utils.mapreduce.TextArrayWritable;
-import com.adobe.s3fs.filesystemcheck.mapreduce.multioutputs.MultiOutputsFactory;
-import com.adobe.s3fs.filesystemcheck.s3.S3ClientFactory;
-import com.adobe.s3fs.metastore.api.VersionedObjectHandle;
-import com.adobe.s3fs.metastore.api.OperationLogEntryState;
-import com.adobe.s3fs.metastore.api.ObjectOperationType;
-import com.amazonaws.retry.RetryPolicy;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.s3.model.S3ObjectInputStream;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Counter;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.output.MultipleOutputs;
-import org.apache.http.client.methods.HttpRequestBase;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -38,6 +33,11 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -49,29 +49,26 @@ import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.*;
 import static com.adobe.s3fs.filesystemcheck.mapreduce.FsckTestUtils.*;
 import static com.adobe.s3fs.filesystemcheck.mapreduce.data.SourceType.FROM_OPLOG;
 import static com.adobe.s3fs.filesystemcheck.mapreduce.data.SourceType.FROM_S3;
+import static com.adobe.s3fs.metastore.api.ObjectOperationType.*;
 import static com.adobe.s3fs.metastore.api.OperationLogEntryState.COMMITTED;
 import static com.adobe.s3fs.metastore.api.OperationLogEntryState.PENDING;
-import static com.adobe.s3fs.metastore.api.ObjectOperationType.*;
 import static com.adobe.s3fs.operationlog.ObjectMetadataSerialization.serializeToV2;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 public class FileSystemCheckS3MapperTest {
 
   private static final SerializableVoid KEY_VOID = SerializableVoid.INSTANCE;
 
-  @Mock private S3ClientFactory mockS3ClientFactory;
-
-  @Mock private MultipleOutputs mockMultipleOutputs;
+  @Mock private MultipleOutputs<Text, LogicalObjectWritable> mockMultipleOutputs;
 
   @Mock private MultiOutputsFactory mockMosFactory;
 
-  @Mock private AmazonS3 mockS3;
+  @Mock private S3Client mockS3;
 
   @Mock private Counter mockCounter;
 
-  @Mock private Mapper<SerializableVoid, S3ObjectSummary, Text, LogicalObjectWritable>.Context mockContext;
+  @Mock private Mapper<SerializableVoid, S3ObjectLocation, Text, LogicalObjectWritable>.Context mockContext;
 
   private Configuration configuration;
 
@@ -112,6 +109,7 @@ public class FileSystemCheckS3MapperTest {
 
     configuration = new Configuration(true);
     configuration.set(LOGICAL_ROOT_PATH, "ks://" + BUCKET);
+    configuration.set(RawS3ScanInputFormat.BUCKET_PROP, BUCKET);
     configuration.setInt(S3_DOWNLOAD_BATCH_SIZE, 2);
 
     when(mockContext.getConfiguration()).thenReturn(configuration);
@@ -131,10 +129,9 @@ public class FileSystemCheckS3MapperTest {
         .when(mockContext)
         .write(any(Text.class), any(LogicalObjectWritable.class));
 
-    when(mockS3ClientFactory.newS3Client(any(RetryPolicy.class), anyInt())).thenReturn(mockS3);
     when(mockMosFactory.newMultipleOutputs(eq(mockContext))).thenReturn(mockMultipleOutputs);
 
-    mapper = new FileSystemCheckS3Mapper(mockS3ClientFactory, mockMosFactory);
+    mapper = new FileSystemCheckS3Mapper((retryPolicy, maxConnections) -> mockS3, mockMosFactory);
 
     mapper.setup(mockContext);
   }
@@ -148,12 +145,12 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectBadStreamToS3ObjectOpLog(operationLogPrefix, phyPath, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     Assert.assertEquals(0, internalState.size());
     ArgumentCaptor<TextArrayWritable> captor = ArgumentCaptor.forClass(TextArrayWritable.class);
@@ -177,12 +174,12 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectUpdateTypeToS3Object(operationLogPrefix, phyPath, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(1, internalState.size());
@@ -201,12 +198,12 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectPendingStateToS3Object(operationLogPrefix, phyPath, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(1, internalState.size());
@@ -224,12 +221,12 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectUncommittedTypeToS3Object(operationLogPrefix, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(0, internalState.size());
@@ -254,12 +251,12 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectDeletedTypeToS3Object(operationLogPrefix, phyPath, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(0, internalState.size());
@@ -281,12 +278,12 @@ public class FileSystemCheckS3MapperTest {
     UUID objectHandleId = UUID.randomUUID();
     String phyPath = physicalEntry(BUCKET, objectHandleId);
 
-    S3ObjectSummary mockS3Object = mock(S3ObjectSummary.class);
-    when(mockS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockS3Object.getKey()).thenReturn(phyPath.substring(phyPath.lastIndexOf('/')+1));
+    S3Object mockS3Object = S3Object.builder()
+            .key(phyPath.substring(phyPath.lastIndexOf('/')+1))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(1, internalState.size());
@@ -305,18 +302,17 @@ public class FileSystemCheckS3MapperTest {
     String logicalPath = logicalEntry(BUCKET, "some/random/prefix/file1");
     injectUpdateTypeToS3Object(operationLogPrefix, phyPath, logicalPath, objectHandleId);
 
-    S3ObjectSummary mockPhyS3Object = mock(S3ObjectSummary.class);
-    when(mockPhyS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockPhyS3Object.getKey()).thenReturn(phyPath.substring(phyPath.lastIndexOf('/')+1));
+    S3Object mockPhyS3Object = S3Object.builder()
+            .key(phyPath.substring(phyPath.lastIndexOf('/')+1))
+            .build();
 
-
-    S3ObjectSummary mockOpLogS3Object = mock(S3ObjectSummary.class);
-    when(mockOpLogS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockOpLogS3Object.getKey()).thenReturn(operationLogPrefix(objectHandleId));
+    S3Object mockOpLogS3Object = S3Object.builder()
+            .key(operationLogPrefix(objectHandleId))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockPhyS3Object, mockContext);
-    mapper.map(KEY_VOID, mockOpLogS3Object, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockPhyS3Object), mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockOpLogS3Object), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     Assert.assertEquals(1, internalState.size());
@@ -355,28 +351,25 @@ public class FileSystemCheckS3MapperTest {
         logicalEntry(BUCKET, "some/random/prefix/file3"),
         uuid3);
 
-    S3ObjectSummary mockOpLogUuid1 = mock(S3ObjectSummary.class);
-    when(mockOpLogUuid1.getBucketName()).thenReturn(BUCKET);
-    when(mockOpLogUuid1.getKey()).thenReturn(operationLogPrefix(uuid1));
+    S3Object mockOpLogUuid1 = S3Object.builder()
+            .key(operationLogPrefix(uuid1))
+            .build();
+    S3Object mockOpLogUuid2 = S3Object.builder()
+            .key(operationLogPrefix(uuid2))
+            .build();
 
-    S3ObjectSummary mockOpLogUuid2 = mock(S3ObjectSummary.class);
-    when(mockOpLogUuid2.getBucketName()).thenReturn(BUCKET);
-    when(mockOpLogUuid2.getKey()).thenReturn(operationLogPrefix(uuid2));
-
-
-    S3ObjectSummary mockOpLogUuid3 = mock(S3ObjectSummary.class);
-    when(mockOpLogUuid3.getBucketName()).thenReturn(BUCKET);
-    when(mockOpLogUuid3.getKey()).thenReturn(operationLogPrefix(uuid3));
-
-    S3ObjectSummary mockPhyS3Object = mock(S3ObjectSummary.class);
-    when(mockPhyS3Object.getBucketName()).thenReturn(BUCKET);
-    when(mockPhyS3Object.getKey()).thenReturn(phyPath1.substring(phyPath1.lastIndexOf('/')+1));
+    S3Object mockOpLogUuid3 = S3Object.builder()
+            .key(operationLogPrefix(uuid3))
+            .build();
+    S3Object mockPhyS3Object = S3Object.builder()
+            .key(phyPath1.substring(phyPath1.lastIndexOf('/')+1))
+            .build();
 
     // Act
-    mapper.map(KEY_VOID, mockOpLogUuid1, mockContext);
-    mapper.map(KEY_VOID, mockPhyS3Object, mockContext);
-    mapper.map(KEY_VOID, mockOpLogUuid2, mockContext);
-    mapper.map(KEY_VOID, mockOpLogUuid3, mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockOpLogUuid1), mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockPhyS3Object), mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockOpLogUuid2), mockContext);
+    mapper.map(KEY_VOID, toS3ObjectLocation(mockOpLogUuid3), mockContext);
     mapper.cleanup(mockContext);
     // Verify
     // 3 Object handle ids
@@ -430,10 +423,11 @@ public class FileSystemCheckS3MapperTest {
   }
 
   private void injectStreamIntoS3ObjectMock(String prefix, InputStream is) {
-    HttpRequestBase mockHttp = mock(HttpRequestBase.class);
-    S3Object mockS3Object = mock(S3Object.class);
-    when(mockS3Object.getObjectContent()).thenReturn(new S3ObjectInputStream(is, mockHttp));
-    when(mockS3.getObject(eq(BUCKET), eq(prefix))).thenReturn(mockS3Object);
+    ResponseInputStream<GetObjectResponse> responseInputStream =
+        new ResponseInputStream<>(GetObjectResponse.builder().build(), is);
+    when(mockS3.getObject(argThat((GetObjectRequest req) ->
+        req != null && req.bucket().equals(BUCKET) && req.key().equals(prefix))))
+        .thenReturn(responseInputStream);
   }
 
   private void injectBadStreamToS3ObjectOpLog(String prefix, String phyPath, String logicalPath, UUID uuid) {
@@ -471,5 +465,9 @@ public class FileSystemCheckS3MapperTest {
     injectStreamIntoS3ObjectMock(
         prefix,
         getObjectMetadataStream(objectContent(phyPath, logicalPath, uuid, true, PENDING, UPDATE)));
+  }
+
+  private S3ObjectLocation toS3ObjectLocation(S3Object s3Object) {
+    return S3ObjectLocation.builder().bucket(BUCKET).s3Object(s3Object).build();
   }
 }

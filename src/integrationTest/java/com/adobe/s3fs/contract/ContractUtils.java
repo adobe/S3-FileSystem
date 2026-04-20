@@ -27,8 +27,8 @@ public final class ContractUtils {
   public static void configureFullyFunctionalFileSystem(Configuration configuration,
                                                         LocalStackContainer localStackContainer,
                                                         String tmpFolder) {
-    ITUtils.createBucketIfNotExists(ITUtils.amazonS3(localStackContainer), S3KFileSystemContract.BUCKET);
-    ITUtils.createBucketIfNotExists(ITUtils.amazonS3(localStackContainer), S3KFileSystemContract.OPLOG_BUCKET);
+    ITUtils.createBucketIfNotExists(ITUtils.s3Client(localStackContainer), S3KFileSystemContract.BUCKET);
+    ITUtils.createBucketIfNotExists(ITUtils.s3Client(localStackContainer), S3KFileSystemContract.OPLOG_BUCKET);
     ITUtils.createMetaTableIfNotExists(ITUtils.amazonDynamoDB(localStackContainer), S3KFileSystemContract.DYNAMO_TABLE);
 
     configuration.setClass("fs.s3k.impl", HadoopFileSystemAdapter.class, FileSystem.class);

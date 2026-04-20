@@ -33,7 +33,7 @@ public interface MetadataStoreExtended extends MetadataStore {
   /**
    * Return all the possible child objects of the given key. Results are partitioned according to the partitionCount parameter and partitionIndex parameter.
    * Calls made with different partitionIndex parameters <b>must</b> be executable in parallel.
-   * If the concrete implementation does not support scan parallel partitioning, it <b>should</b> throw an exception..
+   * If the concrete implementation does not support scan parallel partitioning, it <b>should</b> throw an exception.
    * This method must return even children that are not reachable though single step parent-child relation iterations.
    * For example:
    * If the metadata store contains:

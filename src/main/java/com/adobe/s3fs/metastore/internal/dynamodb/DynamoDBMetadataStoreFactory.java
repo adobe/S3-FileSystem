@@ -23,10 +23,7 @@ import com.adobe.s3fs.metastore.internal.dynamodb.operations.AsynchronousMetadat
 import com.adobe.s3fs.metastore.internal.dynamodb.operations.MetadataOperations;
 import com.adobe.s3fs.metastore.internal.dynamodb.operations.MetadataTreeOperations;
 import com.adobe.s3fs.metastore.internal.dynamodb.operations.SynchronousMetadataTreeOperations;
-import com.adobe.s3fs.metastore.internal.dynamodb.storage.AmazonDynamoDbStorageFactory;
-import com.adobe.s3fs.metastore.internal.dynamodb.storage.DynamoDBStorageConfiguration;
-import com.adobe.s3fs.metastore.internal.dynamodb.storage.HashingAwareObjectStorageFactory;
-import com.adobe.s3fs.metastore.internal.dynamodb.storage.ObjectMetadataStorage;
+import com.adobe.s3fs.metastore.internal.dynamodb.storage.*;
 import com.adobe.s3fs.metrics.data.ObjectLevelMetricsSource;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
@@ -50,10 +47,12 @@ public class DynamoDBMetadataStoreFactory implements MetadataStoreFactory, Confi
 
     ToIntFunction<Path> hashFunction = implementationResolver.resolve(HASH_FUNCTION_CLASS, DefaultHashFunction.class);
 
-    ObjectMetadataStorage objectMetadataStorage =
-                new HashingAwareObjectStorageFactory(hashFunction,
-                                                     metaStoreConfiguration,
-                                                     new AmazonDynamoDbStorageFactory(storageConfiguration)).create(context);
+    ObjectMetadataStorage objectMetadataStorage = new HashingAwareObjectStorageFactory(
+            hashFunction,
+            metaStoreConfiguration,
+            new AmazonDynamoDbStorageFactory(storageConfiguration)
+    ).create(context);
+
 
     MetadataOperations metadataOperations =
         new MetadataOperations(

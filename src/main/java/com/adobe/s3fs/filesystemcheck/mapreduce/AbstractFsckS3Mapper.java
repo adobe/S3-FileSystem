@@ -20,13 +20,9 @@ import com.adobe.s3fs.filesystemcheck.s3.S3ClientFactory;
 import com.adobe.s3fs.filesystemcheck.utils.UriMetadataPair;
 import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
 import com.adobe.s3fs.operationlog.ObjectMetadataSerialization;
-import com.adobe.s3fs.utils.aws.LoggingBackoffStrategy;
+import com.adobe.s3fs.utils.aws.SimpleRetryPolicies;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import com.adobe.s3fs.utils.mapreduce.SerializableVoid;
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -34,6 +30,11 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +45,7 @@ import java.util.Optional;
 import static com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemMRJobConfig.*;
 import static com.adobe.s3fs.operationlog.S3MetadataOperationLog.INFO_SUFFIX;
 
-public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3ObjectSummary, Text, LogicalObjectWritable> {
+public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3ObjectLocation, Text, LogicalObjectWritable> {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractFsckS3Mapper.class);
 
@@ -56,17 +57,16 @@ public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3Ob
   // Mos factory
   private final MultiOutputsFactory mosFactory;
   // S3 client
-  protected AmazonS3 s3Client;
+  protected S3Client s3Client;
   // Map context
-  protected Mapper<SerializableVoid, S3ObjectSummary, Text, LogicalObjectWritable>.Context context;
+  protected Mapper<SerializableVoid, S3ObjectLocation, Text, LogicalObjectWritable>.Context context;
   // Logical root path (from metastore)
   protected String rootPath;
   // Multiple outputs adapter
   protected MultiOutputs mosAdapter;
 
   @VisibleForTesting
-  public AbstractFsckS3Mapper(
-      S3ClientFactory s3ClientFactory, MultiOutputsFactory mosFactory) {
+  public AbstractFsckS3Mapper(S3ClientFactory s3ClientFactory, MultiOutputsFactory mosFactory) {
     this.s3ClientFactory = Objects.requireNonNull(s3ClientFactory);
     this.mosFactory = Objects.requireNonNull(mosFactory);
   }
@@ -85,12 +85,7 @@ public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3Ob
     int retries = config.getInt(S3_RETRIES, 5);
     int maxS3Connections = config.getInt(S3_DOWNLOAD_BATCH_SIZE, 10);
 
-    RetryPolicy.BackoffStrategy backoffStrategy =
-        new LoggingBackoffStrategy(
-            new PredefinedBackoffStrategies.FullJitterBackoffStrategy(baseDelay, maxDelay));
-    RetryPolicy retryPolicy =
-        new RetryPolicy(
-            PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION, backoffStrategy, retries, true);
+    RetryPolicy retryPolicy = SimpleRetryPolicies.fullJitter(baseDelay, maxDelay, retries);
     this.s3Client = this.s3ClientFactory.newS3Client(retryPolicy, maxS3Connections);
 
     this.mosAdapter =
@@ -98,10 +93,9 @@ public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3Ob
   }
 
   @Override
-  protected void map(SerializableVoid key, S3ObjectSummary value, Context context) throws IOException, InterruptedException {
-
-    String bucketName = value.getBucketName();
-    String prefix = value.getKey();
+  protected void map(SerializableVoid key, S3ObjectLocation value, Context context) throws IOException, InterruptedException {
+    String bucketName = value.bucket();
+    String prefix = value.s3Object().key();
     URI sourceUri = new Path("s3://" + bucketName + "/", prefix).toUri();
 
     // Physical data format: s3://bucket/<radomUUID>.id=<objHandleId>"
@@ -131,19 +125,27 @@ public abstract class AbstractFsckS3Mapper extends Mapper<SerializableVoid, S3Ob
 
   @Override
   protected void cleanup(Context context) throws IOException, InterruptedException {
-    super.cleanup(context);
-    mosAdapter.close();
+    try (S3Client s3ClientCopy = s3Client;
+         MultiOutputs mosAdapterCopy = mosAdapter) {
+      // let try-with-resources close it
+    } finally {
+      super.cleanup(context);
+    }
   }
 
   private UriMetadataPair download(String bucket, String prefix) {
     Optional<LogicalFileMetadataV2> metadata = Optional.empty();
     URI sourceUri = new Path("s3://" + bucket + "/", prefix).toUri();
-    try (InputStream inputStream = s3Client.getObject(bucket, prefix).getObjectContent()) {
+    try (ResponseInputStream<GetObjectResponse> inputStream =
+             s3Client.getObject(GetObjectRequest.builder()
+                 .bucket(bucket)
+                 .key(prefix)
+                 .build())) {
       metadata = deserializeOperationLog(bucket, prefix, inputStream);
     } catch (IOException ioe) {
       LOG.warn("Exception caught while getting operation log!", ioe);
-    } catch (InterruptedException intrEx) {
-      LOG.warn("Exception caught due to current thread being interrupted!", intrEx);
+    } catch (InterruptedException ie) {
+      LOG.warn("Exception caught due to current thread being interrupted!", ie);
       Thread.currentThread().interrupt();
     }
     return UriMetadataPair.builder().metadata(metadata).uri(sourceUri).build();

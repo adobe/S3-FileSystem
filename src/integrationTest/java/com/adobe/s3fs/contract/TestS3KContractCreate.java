@@ -60,7 +60,7 @@ public class TestS3KContractCreate extends AbstractContractCreateTest {
 
   @Test
   @Override
-  public void testFileStatusBlocksizeNonEmptyFile() throws Throwable {
+  public void testFileStatusBlocksizeNonEmptyFile() {
     ContractTestUtils.skip("Block size for files not supported");
   }
 }

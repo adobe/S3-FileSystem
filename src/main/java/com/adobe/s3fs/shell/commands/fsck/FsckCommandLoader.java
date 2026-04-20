@@ -85,7 +85,7 @@ public class FsckCommandLoader implements Runnable {
 
   @Option(
       name = "--hadoopProperties",
-      description = "Provide a comma separated list of key value pairs for Hadoop configuraiton"
+      description = "Provide a comma separated list of key value pairs for Hadoop configuration"
   )
   @CommaSeparatedValues
   private List<String> keyValueHadoopConfigs;

@@ -22,10 +22,15 @@ archivesBaseName = "s3-filesystem"
 version = "1.1"
 
 dependencies {
-    annotationProcessor "org.immutables:value:2.5.6"
-    compileOnly "org.immutables:value:2.5.6"
+    annotationProcessor "org.immutables:value:$versionImmutables"
+    compileOnly "org.immutables:value-annotations:$versionImmutables"
     implementation "com.google.guava:guava:23.0"
-    implementation "com.amazonaws:aws-java-sdk-dynamodb:1.11.678"
+
+    // AWS SDK V2 (w/ BOM)
+    implementation platform("software.amazon.awssdk:bom:$versionAwsSdk")
+    implementation "software.amazon.awssdk:apache-client"
+    implementation "software.amazon.awssdk:dynamodb"
+    implementation "software.amazon.awssdk:s3"
 
     compileOnly "org.apache.hadoop:hadoop-common:3.1.2"
 
@@ -35,8 +40,8 @@ dependencies {
     implementation "com.fasterxml.jackson.core:jackson-databind:2.9.7"
     implementation "com.github.rvesse:airline:2.6.0"
 
-    testImplementation "junit:junit:4.12"
-    testImplementation "org.mockito:mockito-core:2.23.4"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.mockito:mockito-inline:4.11.0"
     testImplementation "com.tngtech.java:junit-dataprovider:1.13.1"
     testImplementation "org.testcontainers:localstack:1.21.4"
     testImplementation "org.apache.hadoop:hadoop-aws:3.1.1"
@@ -55,20 +60,17 @@ sourceSets {
     main {
         java {
             srcDirs "src/main/java", "$generatedClassesPath"
-            outputDir = file("${project.buildDir}/classes/main")
         }
     }
     test {
         java {
             srcDirs += "$generatedTestClassesPath"
-            outputDir = file("${project.buildDir}/classes/test")
         }
     }
 
     integrationTest {
         java {
             srcDirs += "src/integrationTest/java"
-            outputDir = file("${project.buildDir}/classes/integrationTest")
         }
         compileClasspath += sourceSets.main.output
         runtimeClasspath += sourceSets.main.output
@@ -126,7 +128,6 @@ task sourcesJar(type: Jar) {
 shadowJar {
     mergeServiceFiles()
     relocate 'com.google', 'com.adobe.s3fs.com.google'
-    relocate 'com.amazonaws', 'com.adobe.s3fs.com.amazonaws'
     relocate 'net.jodah', 'com.adobe.s3fs.net.jodah'
     relocate 'org.apache.commons', 'com.adobe.s3fs.org.apache.commons'
     relocate 'org.apache.http', 'com.adobe.s3fs.org.apache.http'
@@ -135,6 +136,8 @@ shadowJar {
     relocate 'org.joda', 'com.adobe.s3fs.org.joda'
     relocate 'io.netty', 'com.adobe.s3fs.io.netty'
     relocate 'com.github.rvesse', 'com.adobe.s3fs.com.github.rvesse'
+    // Relocate slf4j to avoid classloader conflicts with Spark
+    relocate 'org.slf4j', 'com.adobe.s3fs.org.slf4j'
     // Javax is a transitive dependency brought by com.github.rvesse. Will relocate it as well
     relocate 'javax.inject', 'com.adobe.s3fs.javax.inject'
 }
@@ -179,7 +182,7 @@ publishing {
                 licenses {
                     license {
                         name = 'The Apache License, Version 2.0'
-                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
                     }
                 }
                 developers {

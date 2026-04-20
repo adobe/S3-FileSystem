@@ -18,7 +18,7 @@ import com.adobe.s3fs.utils.DynamoTable;
 import com.adobe.s3fs.utils.ExpectedFSObject;
 import com.adobe.s3fs.utils.ITUtils;
 import com.adobe.s3fs.utils.S3Bucket;
-import com.amazonaws.services.s3.AmazonS3;
+import software.amazon.awssdk.services.s3.S3Client;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import org.apache.commons.io.IOUtils;
@@ -72,20 +72,20 @@ public class FileSystemIntegrationTest {
   public DynamoTable dynamoTable1 = new DynamoTable(ITUtils.amazonDynamoDB(localStackContainer));
 
   @Rule
-  public S3Bucket bucket1 = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  public S3Bucket bucket1 = new S3Bucket(ITUtils.s3Client(localStackContainer));
 
   @Rule
-  public S3Bucket operationLogBucket = new S3Bucket(ITUtils.amazonS3(localStackContainer));
+  public S3Bucket operationLogBucket = new S3Bucket(ITUtils.s3Client(localStackContainer));
 
   private Configuration configuration;
 
   private FileSystem fileSystem;
 
-  private AmazonS3 s3;
+  private S3Client s3;
 
   @Before
   public void setup() throws IOException {
-    s3 = ITUtils.amazonS3(localStackContainer);
+    s3 = ITUtils.s3Client(localStackContainer);
 
     configuration = new Configuration(false);
     configuration.setClass("fs.s3.impl", HadoopFileSystemAdapter.class, FileSystem.class);
@@ -528,32 +528,32 @@ public class FileSystemIntegrationTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testRenameInDifferentBucketThrowsError() throws IOException {
-    boolean ignored = fileSystem.rename(pathInBucket(bucket1.getBucket(), "src"), new Path("s3://invalid-bucket/file"));
+    fileSystem.rename(pathInBucket(bucket1.getBucket(), "src"), new Path("s3://invalid-bucket/file"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testDeleteFileInDifferentBucketThrowsError() throws IOException {
-    boolean ingored = fileSystem.delete(new Path("s3://invalid-bucket/file"), true);
+    fileSystem.delete(new Path("s3://invalid-bucket/file"), true);
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testMkdirsInDifferentBucketThrowsError() throws IOException {
-    boolean ingored = fileSystem.mkdirs(new Path("s3://invalid-bucket/dir"));
+    fileSystem.mkdirs(new Path("s3://invalid-bucket/dir"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testCreateFileInDifferentBucketThrowsError() throws IOException {
-    FSDataOutputStream ingored = fileSystem.create(new Path("s3://invalid-bucket/file"));
+    fileSystem.create(new Path("s3://invalid-bucket/file"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testOpenFileInDifferentBucketThrowsError() throws IOException {
-    FSDataInputStream ingored = fileSystem.open(new Path("s3://invalid-bucket/file"));
+    fileSystem.open(new Path("s3://invalid-bucket/file"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testGetFileStatusInDifferentBucketThrowsError() throws IOException {
-    FileStatus ingored = fileSystem.getFileStatus(new Path("s3://invalid-bucket/file"));
+    fileSystem.getFileStatus(new Path("s3://invalid-bucket/file"));
   }
 
   private void assertDataInFile(Path path, byte[] data) throws IOException {

@@ -21,8 +21,10 @@ import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
 import com.adobe.s3fs.operationlog.ObjectMetadataSerialization;
 import com.adobe.s3fs.operationlog.S3MetadataOperationLog;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import org.apache.hadoop.fs.Path;
 
@@ -36,15 +38,15 @@ import java.util.stream.Collectors;
 
 public class OperationLogStateChecker {
 
-  public static void checkOperationLogState(AmazonS3 s3, String bucket, ExpectedFSObject... expectedOperationLog) {
-    checkOperationLogState(s3, bucket, Arrays.asList(expectedOperationLog));
+  public static void checkOperationLogState(S3Client s3Client, String bucket, ExpectedFSObject... expectedOperationLog) {
+    checkOperationLogState(s3Client, bucket, Arrays.asList(expectedOperationLog));
   }
 
-  public static void checkOperationLogState(AmazonS3 s3, String bucket, Collection<ExpectedFSObject> expectedOperationLog) {
-    List<LogicalFileMetadataV2> operationLog = ITUtils.listFully(s3, bucket)
+  public static void checkOperationLogState(S3Client s3Client, String bucket, Collection<ExpectedFSObject> expectedOperationLog) {
+    List<LogicalFileMetadataV2> operationLog = ITUtils.listFully(s3Client, bucket)
         .stream()
-        .filter(it -> it.getKey().endsWith(S3MetadataOperationLog.INFO_SUFFIX))
-        .map(it -> readMetadata(s3, new GetObjectRequest(bucket, it.getKey())))
+        .filter(it -> it.key().endsWith(S3MetadataOperationLog.INFO_SUFFIX))
+        .map(it -> readMetadata(s3Client, bucket, it.key()))
         .collect(Collectors.toList());
 
     assertEquals(expectedOperationLog.size(), operationLog.size());
@@ -68,9 +70,13 @@ public class OperationLogStateChecker {
     }
   }
 
-  private static LogicalFileMetadataV2 readMetadata(AmazonS3 s3, GetObjectRequest getObjectRequest) {
-    try {
-      return ObjectMetadataSerialization.deserializeFromV2(s3.getObject(getObjectRequest).getObjectContent());
+  private static LogicalFileMetadataV2 readMetadata(S3Client s3Client, String bucket, String key) {
+    try (ResponseInputStream<GetObjectResponse> inputStream = s3Client.getObject(
+        GetObjectRequest.builder()
+            .bucket(bucket)
+            .key(key)
+            .build())) {
+      return ObjectMetadataSerialization.deserializeFromV2(inputStream);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

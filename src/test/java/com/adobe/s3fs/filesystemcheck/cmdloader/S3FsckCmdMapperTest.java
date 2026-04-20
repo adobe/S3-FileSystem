@@ -13,7 +13,6 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.filesystemcheck.cmdloader;
 
 import com.adobe.s3fs.utils.mapreduce.TextArrayWritable;
-import com.amazonaws.services.s3.AmazonS3;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
@@ -23,11 +22,12 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
 import java.io.IOException;
 
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.times;
 
 public class S3FsckCmdMapperTest {
 
@@ -35,7 +35,7 @@ public class S3FsckCmdMapperTest {
 
   private Configuration config;
 
-  @Mock private AmazonS3 mockS3Client;
+  @Mock private S3Client mockS3Client;
 
   @Mock private Counter mockCounter;
 
@@ -64,7 +64,8 @@ public class S3FsckCmdMapperTest {
     Text[] params = new Text[]{new Text(BUCKET), new Text("key")};
     mapper.map(new Text("deleteObject"), new TextArrayWritable(params), mockContext);
     // Verify
-    verify(mockS3Client, times(1)).deleteObject(eq(BUCKET), eq("key"));
+    verify(mockS3Client, times(1)).deleteObject(argThat((DeleteObjectRequest req) ->
+        req.bucket().equals(BUCKET) && req.key().equals("key")));
   }
 
   @Test
@@ -72,6 +73,7 @@ public class S3FsckCmdMapperTest {
     Text[] params = new Text[]{new Text(BUCKET), new Text("dir1/dir2/dir3/key")};
     mapper.map(new Text("deleteObject"), new TextArrayWritable(params), mockContext);
     // Verify
-    verify(mockS3Client, times(1)).deleteObject(eq(BUCKET), eq("dir1/dir2/dir3/key"));
+    verify(mockS3Client, times(1)).deleteObject(argThat((DeleteObjectRequest req) ->
+        req.bucket().equals(BUCKET) && req.key().equals("dir1/dir2/dir3/key")));
   }
 }

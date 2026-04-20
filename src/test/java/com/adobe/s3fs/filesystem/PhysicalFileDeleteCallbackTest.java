@@ -18,7 +18,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.adobe.s3fs.metastore.api.ObjectHandle;
@@ -64,8 +64,8 @@ public class PhysicalFileDeleteCallbackTest {
 
     assertTrue(physicalFileDeleteCallback.apply(mockHandle));
 
-    verifyZeroInteractions(mockPhysicalStorage);
-    verifyZeroInteractions(mockFsMetrics);
+    verifyNoInteractions(mockPhysicalStorage);
+    verifyNoInteractions(mockFsMetrics);
   }
 
   @Test
@@ -83,8 +83,8 @@ public class PhysicalFileDeleteCallbackTest {
 
     assertTrue(physicalFileDeleteCallback.apply(mockHandle));
 
-    verifyZeroInteractions(mockPhysicalStorage);
-    verifyZeroInteractions(mockFsMetrics);
+    verifyNoInteractions(mockPhysicalStorage);
+    verifyNoInteractions(mockFsMetrics);
   }
 
   @Test
@@ -103,7 +103,7 @@ public class PhysicalFileDeleteCallbackTest {
     assertTrue(physicalFileDeleteCallback.apply(mockHandle));
 
     verify(mockPhysicalStorage, times(1)).deleteKey(new Path("s3a://bucket/physical_path"));
-    verifyZeroInteractions(mockFsMetrics);
+    verifyNoInteractions(mockFsMetrics);
   }
 
   @Test

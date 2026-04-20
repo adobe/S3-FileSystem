@@ -15,12 +15,11 @@ package com.adobe.s3fs.filesystemcheck.mapreduce;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.LogicalObjectWritable;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.SourceType;
 import com.adobe.s3fs.filesystemcheck.mapreduce.multioutputs.MultiOutputsFactory;
+import com.adobe.s3fs.filesystemcheck.s3.DefaultS3ClientFactory;
 import com.adobe.s3fs.filesystemcheck.s3.S3ClientFactory;
 import com.adobe.s3fs.filesystemcheck.utils.UriMetadataPair;
 import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3Client;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.lib.output.MultipleOutputs;
@@ -33,20 +32,11 @@ import static com.adobe.s3fs.filesystemcheck.mapreduce.FsckCounters.PARTIAL_REST
 public class FileSystemCheckPartialS3Mapper extends AbstractFsckS3Mapper {
 
   public FileSystemCheckPartialS3Mapper() {
-    super(
-        (retryPolicy, maxConnections) ->
-            AmazonS3Client.builder()
-                .withClientConfiguration(
-                    new ClientConfiguration()
-                        .withRetryPolicy(retryPolicy)
-                        .withMaxConnections(maxConnections))
-                .build(),
-        MultipleOutputs::new);
+    super(DefaultS3ClientFactory.INSTANCE, MultipleOutputs::new);
   }
 
   @VisibleForTesting
-  public FileSystemCheckPartialS3Mapper(
-      S3ClientFactory s3ClientFactory, MultiOutputsFactory mosFactory) {
+  public FileSystemCheckPartialS3Mapper(S3ClientFactory s3ClientFactory, MultiOutputsFactory mosFactory) {
     super(s3ClientFactory, mosFactory);
   }
 

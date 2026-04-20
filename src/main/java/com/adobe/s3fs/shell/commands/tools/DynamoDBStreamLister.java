@@ -14,12 +14,20 @@ package com.adobe.s3fs.shell.commands.tools;
 
 import com.adobe.s3fs.metastore.internal.dynamodb.storage.AmazonDynamoDBStorage;
 import com.adobe.s3fs.utils.threading.BlockingExecutor;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBStreams;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBStreamsClientBuilder;
-import com.amazonaws.services.dynamodbv2.model.*;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.dynamodb.streams.DynamoDbStreamsClient;
+import software.amazon.awssdk.services.dynamodb.model.DescribeStreamRequest;
+import software.amazon.awssdk.services.dynamodb.model.DescribeStreamResponse;
+import software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetRecordsResponse;
+import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorResponse;
+import software.amazon.awssdk.services.dynamodb.model.Record;
+import software.amazon.awssdk.services.dynamodb.model.Shard;
+import software.amazon.awssdk.services.dynamodb.model.ShardIteratorType;
+import software.amazon.awssdk.services.dynamodb.model.StreamRecord;
 import com.github.rvesse.airline.annotations.Command;
 import com.github.rvesse.airline.annotations.Option;
 import com.github.rvesse.airline.annotations.restrictions.Required;
@@ -65,10 +73,10 @@ public class DynamoDBStreamLister implements Runnable {
     Preconditions.checkNotNull(filter);
     totalItemCount.set(0L);
 
-    AmazonDynamoDBStreams streamsClient = AmazonDynamoDBStreamsClientBuilder.standard()
-        .withCredentials(new DefaultAWSCredentialsProviderChain())
-        .withClientConfiguration(new ClientConfiguration().withMaxConnections(threads))
-        .withRegion(Regions.US_EAST_1)
+    DynamoDbStreamsClient streamsClient = DynamoDbStreamsClient.builder()
+        .credentialsProvider(DefaultCredentialsProvider.builder().build())
+        .httpClientBuilder(ApacheHttpClient.builder().maxConnections(threads))
+        .region(Region.US_EAST_1)
         .build();
 
     BlockingExecutor executorService = new BlockingExecutor(
@@ -78,14 +86,15 @@ public class DynamoDBStreamLister implements Runnable {
     String lastEvaluatedShardID = null;
 
     do {
-      DescribeStreamResult describeStreamResult = streamsClient.describeStream(new DescribeStreamRequest()
-          .withStreamArn(streamArn)
-          .withExclusiveStartShardId(lastEvaluatedShardID));
+      DescribeStreamResponse describeStreamResult = streamsClient.describeStream(DescribeStreamRequest.builder()
+          .streamArn(streamArn)
+          .exclusiveStartShardId(lastEvaluatedShardID)
+          .build());
 
-      List<Shard> shards = describeStreamResult.getStreamDescription().getShards();
+      List<Shard> shards = describeStreamResult.streamDescription().shards();
 
       for (Shard shard : shards) {
-        if (Strings.isNullOrEmpty(shard.getSequenceNumberRange().getEndingSequenceNumber())) {
+        if (Strings.isNullOrEmpty(shard.sequenceNumberRange().endingSequenceNumber())) {
           // shard is still being written so skip it otherwise we loop on it until it closes
           continue;
         }
@@ -93,51 +102,53 @@ public class DynamoDBStreamLister implements Runnable {
         executorService.execute(shardProcessor(streamsClient, shard));
       }
 
-      lastEvaluatedShardID = describeStreamResult.getStreamDescription().getLastEvaluatedShardId();
+      lastEvaluatedShardID = describeStreamResult.streamDescription().lastEvaluatedShardId();
     } while (lastEvaluatedShardID != null);
 
     executorService.shutdownAndAwaitTermination();
   }
 
-  private Runnable shardProcessor(AmazonDynamoDBStreams streamsClient, Shard shard) {
+  private Runnable shardProcessor(DynamoDbStreamsClient streamsClient, Shard shard) {
     return () -> {
       try {
-        String shardId = shard.getShardId();
+        String shardId = shard.shardId();
 
-        GetShardIteratorRequest getShardIteratorRequest = new GetShardIteratorRequest()
-            .withStreamArn(streamArn)
-            .withShardId(shardId)
-            .withShardIteratorType(ShardIteratorType.TRIM_HORIZON);
-        GetShardIteratorResult getShardIteratorResult =
+        GetShardIteratorRequest getShardIteratorRequest = GetShardIteratorRequest.builder()
+            .streamArn(streamArn)
+            .shardId(shardId)
+            .shardIteratorType(ShardIteratorType.TRIM_HORIZON)
+            .build();
+        GetShardIteratorResponse getShardIteratorResult =
             streamsClient.getShardIterator(getShardIteratorRequest);
 
-        String currentShardIter = getShardIteratorResult.getShardIterator();
+        String currentShardIter = getShardIteratorResult.shardIterator();
 
         while (currentShardIter != null) {
-          GetRecordsResult getRecordsResult = streamsClient.getRecords(new GetRecordsRequest()
-              .withShardIterator(currentShardIter));
-          List<Record> records = getRecordsResult.getRecords();
+          GetRecordsResponse getRecordsResult = streamsClient.getRecords(GetRecordsRequest.builder()
+              .shardIterator(currentShardIter)
+              .build());
+          List<Record> records = getRecordsResult.records();
           for (Record it : records) {
-            StreamRecord record = it.getDynamodb();
+            StreamRecord record = it.dynamodb();
             if (debug && totalItemCount.incrementAndGet() % 50000 == 0) {
               LOG.info("Processed {} stream records", totalItemCount.get());
             }
 
-            boolean hasOldImage = record.getOldImage() != null && !record.getOldImage().isEmpty();
-            boolean inOldImageHash = hasOldImage && record.getOldImage().get(AmazonDynamoDBStorage.HASH_KEY).getS().contains(filter);
-            boolean inOldImageSort = hasOldImage && record.getOldImage().get(AmazonDynamoDBStorage.SORT_KEY).getS().contains(filter);
-            boolean hasNewImage = record.getNewImage() != null && !record.getNewImage().isEmpty();
-            boolean inNewImageHash = hasNewImage && record.getNewImage().get(AmazonDynamoDBStorage.HASH_KEY).getS().contains(filter);
-            boolean inNewImageSort = hasNewImage && record.getNewImage().get(AmazonDynamoDBStorage.SORT_KEY).getS().contains(filter);
+            boolean hasOldImage = record.hasOldImage() && !record.oldImage().isEmpty();
+            boolean inOldImageHash = hasOldImage && record.oldImage().get(AmazonDynamoDBStorage.HASH_KEY).s().contains(filter);
+            boolean inOldImageSort = hasOldImage && record.oldImage().get(AmazonDynamoDBStorage.SORT_KEY).s().contains(filter);
+            boolean hasNewImage = record.hasNewImage() && !record.newImage().isEmpty();
+            boolean inNewImageHash = hasNewImage && record.newImage().get(AmazonDynamoDBStorage.HASH_KEY).s().contains(filter);
+            boolean inNewImageSort = hasNewImage && record.newImage().get(AmazonDynamoDBStorage.SORT_KEY).s().contains(filter);
 
             if (inOldImageHash || inOldImageSort || inNewImageHash || inNewImageSort) {
               LOG.info("Stream Entry: {}", record);
             }
           }
-          currentShardIter = getRecordsResult.getNextShardIterator();
+          currentShardIter = getRecordsResult.nextShardIterator();
         }
       } catch (Exception e) {
-        LOG.error("Error processing shard {}", shard.getShardId());
+        LOG.error("Error processing shard {}", shard.shardId());
         LOG.error("Error: ", e);
       }
     };

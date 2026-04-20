@@ -210,6 +210,13 @@ public class HashingAwareObjectStorage implements ObjectMetadataStorage {
     return DynamoUtils.objectToDynamoItem(object, hashKey, sortKey);
   }
 
+  @Override
+  public void close() {
+    try (DynamoDBStorage storageCopy = storage) {
+      // let try-with-resources close it
+    }
+  }
+
   private class TransactionImpl implements Transaction {
 
     private final DynamoDBStorage.Transaction dynamoTransaction;

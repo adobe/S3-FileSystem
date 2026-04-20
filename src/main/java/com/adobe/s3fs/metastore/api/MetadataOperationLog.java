@@ -12,14 +12,13 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.api;
 
-import java.io.Closeable;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * Persistently stores all metadata operations for recovery purposes.
  */
-public interface MetadataOperationLog extends Closeable {
+public interface MetadataOperationLog extends AutoCloseable {
 
   /**
    * Handle for either rolling back the operation log to the last state for a given object, or committing the last state.
@@ -76,4 +75,10 @@ public interface MetadataOperationLog extends Closeable {
    * @return
    */
   CompletableFuture<Optional<LogEntryHandle>> logDeleteOperationAsync(VersionedObjectHandle object);
+
+  /**
+   * Closes the underlying resources.
+   */
+  @Override
+  void close();
 }

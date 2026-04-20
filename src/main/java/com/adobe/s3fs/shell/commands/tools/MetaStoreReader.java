@@ -25,8 +25,6 @@ import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.Optional;
 
 import static com.adobe.s3fs.shell.CommandGroups.TOOLS;
@@ -65,9 +63,6 @@ public class MetaStoreReader implements Runnable {
       ObjectHandle objectHandle = existingObjectOptional.orElseThrow(IllegalArgumentException::new);
 
       LOG.info("Metadata is {}", objectHandle);
-    } catch (IOException e) {
-      LOG.error("Exception thrown while processing", e);
-      throw new UncheckedIOException(e);
     }
   }
 }

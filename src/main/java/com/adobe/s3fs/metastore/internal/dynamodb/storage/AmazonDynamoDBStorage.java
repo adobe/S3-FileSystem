@@ -15,13 +15,12 @@ package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 import com.adobe.s3fs.common.runtime.FileSystemRuntime;
 import com.adobe.s3fs.utils.collections.EagerIterable;
 import com.adobe.s3fs.utils.exceptions.UncheckedException;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.document.ItemUtils;
-import com.amazonaws.services.dynamodbv2.model.*;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -31,25 +30,44 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
   public static final String HASH_KEY = "path";
   public static final String SORT_KEY = "children";
   public static final String IS_DIR = "isdir";
-  public static final String SIZE= "size";
+  public static final String SIZE = "size";
   public static final String CREATION_TIME = "ctime";
   public static final String PHYSICAL_PATH = "physpath";
   public static final String PHYSICAL_DATA_COMMITTED = "physcommitted";
   public static final String VERSION = "ver";
   public static final String ID = "id";
 
+  // Projection expression - use placeholders for reserved keywords
+  // DynamoDB reserved keywords: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html
+  private static final String PROJECTION_EXPRESSION =
+      "#p,#c,#isdir,#ctime,#size,#physpath,#physcommitted,#ver,#id";
+
+  // Expression Attribute Names - maps placeholders to actual attribute names
+  private static final Map<String, String> EXPRESSION_ATTRIBUTE_NAMES =
+      Collections.unmodifiableMap(new HashMap<String, String>() {{
+        put("#p", HASH_KEY);
+        put("#c", SORT_KEY);
+        put("#isdir", IS_DIR);
+        put("#ctime", CREATION_TIME);
+        put("#size", SIZE);             // "size" is a reserved keyword
+        put("#physpath", PHYSICAL_PATH);
+        put("#physcommitted", PHYSICAL_DATA_COMMITTED);
+        put("#ver", VERSION);
+        put("#id", ID);
+      }});
+
   public static final String HASH_KEY_ATT_NAME = "#p";
   public static final Map<String, String> CREATE_ITEM_IF_NOT_EXISTS_ATT_NAMES = new HashMap<String, String>() {{
     put(HASH_KEY_ATT_NAME, HASH_KEY);
   }};
 
-  private final AmazonDynamoDB dynamoDB;
+  private final DynamoDbClient dynamoDB;
   private final String tableName;
   private final FileSystemRuntime runtime;
 
   private static final Logger LOG = LoggerFactory.getLogger(AmazonDynamoDBStorage.class);
 
-  public AmazonDynamoDBStorage(AmazonDynamoDB dynamoDB,
+  public AmazonDynamoDBStorage(DynamoDbClient dynamoDB,
                                String tableName,
                                FileSystemRuntime runtime) {
     this.dynamoDB = Preconditions.checkNotNull(dynamoDB);
@@ -60,7 +78,11 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
   @Override
   public void putItem(DynamoDBItem item) {
     Map<String, AttributeValue> dynamoItem = toRawDynamoDBItem(item);
-    dynamoDB.putItem(new PutItemRequest(tableName, dynamoItem));
+    PutItemRequest request = PutItemRequest.builder()
+        .tableName(tableName)
+        .item(dynamoItem)
+        .build();
+    dynamoDB.putItem(request);
   }
 
   @Override
@@ -81,26 +103,31 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
 
   @Override
   public void updateItem(DynamoDBItem item) {
-    UpdateItemRequest request = new UpdateItemRequest()
-        .withTableName(tableName)
-        .withKey(toRawDynamoDBKey(item))
-        .addExpectedEntry(HASH_KEY,
-            new ExpectedAttributeValue()
-                .withValue(ItemUtils.toAttributeValue(item.getHashKey()))
-                .withComparisonOperator(ComparisonOperator.EQ))
-        .addExpectedEntry(SORT_KEY,
-            new ExpectedAttributeValue()
-                .withValue(ItemUtils.toAttributeValue(item.getSortKey()))
-                .withComparisonOperator(ComparisonOperator.EQ))
-        .addExpectedEntry(ID,
-            new ExpectedAttributeValue()
-                .withValue(ItemUtils.toAttributeValue(item.id().toString()))
-                .withComparisonOperator(ComparisonOperator.EQ))
-        .addExpectedEntry(VERSION,
-            new ExpectedAttributeValue()
-                .withValue(ItemUtils.toAttributeValue(item.version() - 1))
-                .withComparisonOperator(ComparisonOperator.EQ))
-        .withAttributeUpdates(toRawDynamoDBItemUpdate(item));
+    Map<String, ExpectedAttributeValue> expected = new HashMap<>();
+
+    expected.put(HASH_KEY, ExpectedAttributeValue.builder()
+        .value(ItemUtils.toAttributeValue(item.getHashKey()))
+        .comparisonOperator(ComparisonOperator.EQ)
+        .build());
+    expected.put(SORT_KEY, ExpectedAttributeValue.builder()
+        .value(ItemUtils.toAttributeValue(item.getSortKey()))
+        .comparisonOperator(ComparisonOperator.EQ)
+        .build());
+    expected.put(ID, ExpectedAttributeValue.builder()
+        .value(ItemUtils.toAttributeValue(item.id().toString()))
+        .comparisonOperator(ComparisonOperator.EQ)
+        .build());
+    expected.put(VERSION, ExpectedAttributeValue.builder()
+        .value(ItemUtils.toAttributeValue(item.version() - 1))
+        .comparisonOperator(ComparisonOperator.EQ)
+        .build());
+
+    UpdateItemRequest request = UpdateItemRequest.builder()
+        .tableName(tableName)
+        .key(toRawDynamoDBKey(item))
+        .expected(expected)
+        .attributeUpdates(toRawDynamoDBItemUpdate(item))
+        .build();
 
     try {
       dynamoDB.updateItem(request);
@@ -117,17 +144,20 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
 
   @Override
   public Optional<DynamoDBItem> getItem(String hashKey, String sortKey) {
-    GetItemRequest getItemRequest = new GetItemRequest(tableName, toRawDynamoDBKey(hashKey, sortKey))
-        .withConsistentRead(true)
-        .withAttributesToGet(HASH_KEY, SORT_KEY, IS_DIR, CREATION_TIME, SIZE,
-                             PHYSICAL_PATH, PHYSICAL_DATA_COMMITTED, VERSION, ID);
+    GetItemRequest request = GetItemRequest.builder()
+        .tableName(tableName)
+        .key(toRawDynamoDBKey(hashKey, sortKey))
+        .consistentRead(true)
+        .projectionExpression(PROJECTION_EXPRESSION)
+        .expressionAttributeNames(EXPRESSION_ATTRIBUTE_NAMES)
+        .build();
 
-    GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
-    if (getItemResult == null || getItemResult.getItem() == null) {
+    GetItemResponse response = dynamoDB.getItem(request);
+    if (!response.hasItem() || response.item().isEmpty()) {
       return Optional.empty();
     }
 
-    return Optional.of(rawItemToDynamoDBItem(getItemResult.getItem()));
+    return Optional.of(rawItemToDynamoDBItem(response.item()));
   }
 
   @Override
@@ -137,7 +167,12 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
 
   @Override
   public void deleteItem(String hashKey, String sortKey) {
-    dynamoDB.deleteItem(new DeleteItemRequest(tableName, toRawDynamoDBKey(hashKey, sortKey)));
+    DeleteItemRequest request = DeleteItemRequest.builder()
+        .tableName(tableName)
+        .key(toRawDynamoDBKey(hashKey, sortKey))
+        .build();
+
+    dynamoDB.deleteItem(request);
   }
 
   @Override
@@ -150,20 +185,20 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
 
   @Override
   public Iterable<DynamoDBItem> list(String hashKey) {
-    Condition hashCondition = new Condition()
-        .withAttributeValueList(ItemUtils.toAttributeValue(hashKey))
-        .withComparisonOperator(ComparisonOperator.EQ);
-    Map<String, Condition> hashConditionMap = new HashMap<>();
-    hashConditionMap.put(HASH_KEY, hashCondition);
+    Condition condition = Condition.builder()
+        .attributeValueList(ItemUtils.toAttributeValue(hashKey))
+        .comparisonOperator(ComparisonOperator.EQ)
+        .build();
 
-    QueryRequest queryRequest = new QueryRequest(tableName)
-        .withKeyConditions(hashConditionMap)
-        .withConsistentRead(true)
-        .withAttributesToGet(HASH_KEY, SORT_KEY, IS_DIR, CREATION_TIME, SIZE, PHYSICAL_PATH, PHYSICAL_DATA_COMMITTED,
-                             VERSION, ID);
+    QueryRequest queryRequest = QueryRequest.builder()
+        .tableName(tableName)
+        .keyConditions(Collections.singletonMap(HASH_KEY, condition))
+        .consistentRead(true)
+        .projectionExpression(PROJECTION_EXPRESSION)
+        .expressionAttributeNames(EXPRESSION_ATTRIBUTE_NAMES)
+        .build();
 
-    return FluentIterable.from(new EagerIterable<>(() -> new QueryIterator(queryRequest)))
-        .transform(this::rawItemToDynamoDBItem);
+    return FluentIterable.from(new EagerIterable<>(() -> new PaginatedDynamoIterator<>(queryRequest, this::loadQueryPage)));
   }
 
   @Override
@@ -177,16 +212,16 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
     Preconditions.checkArgument(partitionCount > 0);
     Preconditions.checkArgument(partitionIndex < partitionCount);
 
-    ScanRequest scanRequest = new ScanRequest(tableName)
-        .withConsistentRead(true)
-        .withSegment(partitionIndex)
-        .withTotalSegments(partitionCount)
-        .withAttributesToGet(HASH_KEY, SORT_KEY, IS_DIR, CREATION_TIME, SIZE, PHYSICAL_PATH, PHYSICAL_DATA_COMMITTED,
-                             VERSION, ID);
+    ScanRequest scanRequest = ScanRequest.builder()
+        .tableName(tableName)
+        .consistentRead(true)
+        .segment(partitionIndex)
+        .totalSegments(partitionCount)
+        .projectionExpression(PROJECTION_EXPRESSION)
+        .expressionAttributeNames(EXPRESSION_ATTRIBUTE_NAMES)
+        .build();
 
-    return FluentIterable.from(new EagerIterable<>(() -> new ScanIterator(scanRequest)))
-        .transform(this::rawItemToDynamoDBItem);
-
+    return () -> new PaginatedDynamoIterator<>(scanRequest, this::loadScanPage);
   }
 
   private static Map<String, AttributeValue> toRawDynamoDBKey(DynamoDBItem item) {
@@ -203,7 +238,7 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
   }
 
   private static Map<String, AttributeValue> toRawDynamoDBItem(DynamoDBItem item) {
-    Map<String ,AttributeValue> dynamoItem = new HashMap<>();
+    Map<String, AttributeValue> dynamoItem = new HashMap<>();
 
     dynamoItem.put(HASH_KEY, ItemUtils.toAttributeValue(item.getHashKey()));
     dynamoItem.put(SORT_KEY, ItemUtils.toAttributeValue(item.getSortKey()));
@@ -222,22 +257,34 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
   }
 
   private static Map<String, AttributeValueUpdate> toRawDynamoDBItemUpdate(DynamoDBItem item) {
-    Map<String ,AttributeValueUpdate> dynamoItem = new HashMap<>();
+    Map<String, AttributeValueUpdate> dynamoItem = new HashMap<>();
 
-    dynamoItem.put(CREATION_TIME,
-                   new AttributeValueUpdate(ItemUtils.toAttributeValue(item.getCreationTime()), AttributeAction.PUT));
-    dynamoItem.put(VERSION,
-                   new AttributeValueUpdate(ItemUtils.toAttributeValue(item.version()), AttributeAction.PUT));
-    dynamoItem.put(ID,
-                   new AttributeValueUpdate(ItemUtils.toAttributeValue(item.id().toString()), AttributeAction.PUT));
+    dynamoItem.put(CREATION_TIME, AttributeValueUpdate.builder()
+        .value(ItemUtils.toAttributeValue(item.getCreationTime()))
+        .action(AttributeAction.PUT)
+        .build());
+    dynamoItem.put(VERSION, AttributeValueUpdate.builder()
+        .value(ItemUtils.toAttributeValue(item.version()))
+        .action(AttributeAction.PUT)
+        .build());
+    dynamoItem.put(ID, AttributeValueUpdate.builder()
+        .value(ItemUtils.toAttributeValue(item.id().toString()))
+        .action(AttributeAction.PUT)
+        .build());
 
     if (!item.isDirectory()) {
-      dynamoItem.put(SIZE,
-                     new AttributeValueUpdate(ItemUtils.toAttributeValue(item.getSize()), AttributeAction.PUT));
-      dynamoItem.put(PHYSICAL_DATA_COMMITTED,
-                     new AttributeValueUpdate(ItemUtils.toAttributeValue(item.physicalDataCommitted()), AttributeAction.PUT));
-      dynamoItem.put(PHYSICAL_PATH,
-                     new AttributeValueUpdate(ItemUtils.toAttributeValue(item.getPhysicalPath().get()), AttributeAction.PUT));
+      dynamoItem.put(SIZE, AttributeValueUpdate.builder()
+          .value(ItemUtils.toAttributeValue(item.getSize()))
+          .action(AttributeAction.PUT)
+          .build());
+      dynamoItem.put(PHYSICAL_DATA_COMMITTED, AttributeValueUpdate.builder()
+          .value(ItemUtils.toAttributeValue(item.physicalDataCommitted()))
+          .action(AttributeAction.PUT)
+          .build());
+      dynamoItem.put(PHYSICAL_PATH, AttributeValueUpdate.builder()
+          .value(ItemUtils.toAttributeValue(item.getPhysicalPath().get()))
+          .action(AttributeAction.PUT)
+          .build());
     }
 
     return dynamoItem;
@@ -249,15 +296,16 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
   }
 
   private DynamoDBItem rawItemToDynamoDBItem(Map<String, AttributeValue> rawItem) {
-    boolean isDir = rawItem.get(IS_DIR).getBOOL();
+    boolean isDir = rawItem.get(IS_DIR).bool();
+
 
     DynamoDBItem.Builder itemBuilder = DynamoDBItem.builder()
-        .hashKey(rawItem.get(HASH_KEY).getS())
-        .sortKey(rawItem.get(SORT_KEY).getS())
+        .hashKey(rawItem.get(HASH_KEY).s())
+        .sortKey(rawItem.get(SORT_KEY).s())
         .isDirectory(isDir)
-        .creationTime(Long.valueOf(rawItem.get(CREATION_TIME).getN()))
-        .id(UUID.fromString(rawItem.get(ID).getS()))
-        .version(Integer.valueOf(rawItem.get(VERSION).getN()));
+        .creationTime(Long.parseLong(rawItem.get(CREATION_TIME).n()))
+        .id(UUID.fromString(rawItem.get(ID).s()))
+        .version(Integer.parseInt(rawItem.get(VERSION).n()));
 
     if (isDir) {
       itemBuilder.size(0)
@@ -266,135 +314,149 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
     } else {
       if (rawItem.get(PHYSICAL_DATA_COMMITTED) == null) {
         // being backwards compatible here, this attribute may not be present
-        itemBuilder.size(Long.valueOf(rawItem.get(SIZE).getN()))
+        itemBuilder.size(Long.parseLong(rawItem.get(SIZE).n()))
                 .physicalDataCommitted(true)
-                .physicalPath(rawItem.get(PHYSICAL_PATH).getS());
+                .physicalPath(rawItem.get(PHYSICAL_PATH).s());
       } else {
-        itemBuilder.size(Long.valueOf(rawItem.get(SIZE).getN()))
-                .physicalDataCommitted(rawItem.get(PHYSICAL_DATA_COMMITTED).getBOOL())
-                .physicalPath(rawItem.get(PHYSICAL_PATH).getS());
+        itemBuilder.size(Long.parseLong(rawItem.get(SIZE).n()))
+                .physicalDataCommitted(rawItem.get(PHYSICAL_DATA_COMMITTED).bool())
+                .physicalPath(rawItem.get(PHYSICAL_PATH).s());
       }
     }
 
     return itemBuilder.build();
   }
 
+  @Override
+  public void close() {
+    try (DynamoDbClient dynamoDbCopy = dynamoDB) {
+      // let try-with-resources close it
+    }
+  }
+
+  /**
+   * Encapsulates a page of DynamoDB results and pagination state.
+   */
   private static class Page {
-    private final Map<String, AttributeValue> lastKey;
-    private final Iterator<Map<String, AttributeValue>> iterator;
+    final Iterator<Map<String, AttributeValue>> items;
+    final Map<String, AttributeValue> lastEvaluatedKey;
 
-    public Page(Map<String, AttributeValue> lastKey, Iterator<Map<String, AttributeValue>> iterator) {
-      this.lastKey = lastKey;
-      this.iterator = iterator;
+    Page(Iterator<Map<String, AttributeValue>> items, Map<String, AttributeValue> lastEvaluatedKey) {
+      this.items = items;
+      this.lastEvaluatedKey = lastEvaluatedKey;
     }
 
-    public Map<String, AttributeValue> getLastKey() {
-      return lastKey;
-    }
-
-    public Iterator<Map<String, AttributeValue>> getIterator() {
-      return iterator;
-    }
-
-    public static final Page EMPTY = new Page(null, Collections.<Map<String, AttributeValue>>emptyList().iterator());
-  }
-
-  private class ScanIterator extends RawDynamoDBItemIterator<ScanRequest> {
-
-    public ScanIterator(ScanRequest request) {
-      super(request, scanPage(dynamoDB, request));
-    }
-
-    @Override
-    protected Page nextPage(Page currentPage, ScanRequest scanRequest) {
-      return scanPage(dynamoDB, scanRequest.withExclusiveStartKey(currentPage.getLastKey()));
+    boolean hasMorePages() {
+      return lastEvaluatedKey != null;
     }
   }
 
-  private class QueryIterator extends RawDynamoDBItemIterator<QueryRequest> {
-
-    public QueryIterator(QueryRequest request) {
-      super(request, queryPage(dynamoDB, request));
-    }
-
-    @Override
-    protected Page nextPage(Page currentPage, QueryRequest request) {
-      return queryPage(dynamoDB, request.withExclusiveStartKey(currentPage.getLastKey()));
-    }
+  /**
+   * Functional interface for loading a page of results from DynamoDB.
+   * @param <TRequest> The type of DynamoDB request (QueryRequest or ScanRequest)
+   */
+  @FunctionalInterface
+  private interface PageLoader<TRequest> {
+    Page loadPage(TRequest request, Map<String, AttributeValue> exclusiveStartKey);
   }
 
-  private static Page queryPage(AmazonDynamoDB dynamoDB, QueryRequest request) {
-    QueryResult result = dynamoDB.query(request);
-    if (result == null || result.getItems() == null) {
-      return Page.EMPTY;
-    }
-    return new Page(result.getLastEvaluatedKey(), result.getItems().iterator());
-  }
-
-  private static Page scanPage(AmazonDynamoDB dynamoDB, ScanRequest request) {
-    ScanResult result = dynamoDB.scan(request);
-    if (result == null || result.getItems() == null) {
-      return Page.EMPTY;
-    }
-    return new Page(result.getLastEvaluatedKey(), result.getItems().iterator());
-  }
-
-  private abstract class RawDynamoDBItemIterator<TRequest> implements Iterator<Map<String, AttributeValue>> {
-
+  /**
+   * Generic paginated iterator for DynamoDB operations like query and scan.
+   * @param <TRequest> The type of DynamoDB request (QueryRequest or ScanRequest)
+   */
+  private class PaginatedDynamoIterator<TRequest> implements Iterator<DynamoDBItem> {
     private final TRequest request;
-    private Page currentPage = null;
+    private final PageLoader<TRequest> pageLoader;
+    private Page currentPage;
 
-    public RawDynamoDBItemIterator(TRequest request, Page currentPage) {
+    PaginatedDynamoIterator(TRequest request, PageLoader<TRequest> pageLoader) {
       this.request = request;
-      this.currentPage = currentPage;
+      this.pageLoader = pageLoader;
+      // no start key initially
+      currentPage = loadNextPage(null);
+    }
+
+    private Page loadNextPage(Map<String, AttributeValue> exclusiveStartKey) {
+      return pageLoader.loadPage(request, exclusiveStartKey);
     }
 
     @Override
     public boolean hasNext() {
-      if (!currentPage.getIterator().hasNext()) {
-        if (currentPage.getLastKey() != null) {
-          currentPage = nextPage(currentPage, request);
-        }
+      // Keep loading pages until we find items or run out of pages.
+      // DynamoDB can return empty pages with lastEvaluatedKey when filter expressions exclude all items.
+      while (!currentPage.items.hasNext() && currentPage.hasMorePages()) {
+        currentPage = loadNextPage(currentPage.lastEvaluatedKey);
       }
 
-      return currentPage.getIterator().hasNext();
+      return currentPage.items.hasNext();
     }
 
     @Override
-    public Map<String, AttributeValue> next() {
+    public DynamoDBItem next() {
       if (!hasNext()) {
         throw new NoSuchElementException();
       }
-      return currentPage.getIterator().next();
-    }
-
-    protected abstract Page nextPage(Page currentPage, TRequest request);
-
-    @Override
-    public void remove() {
-      throw new UnsupportedOperationException();
+      return rawItemToDynamoDBItem(currentPage.items.next());
     }
   }
 
-  private class TransactionImpl implements Transaction {
+  /**
+   * Loads a page of results from a DynamoDB Query operation.
+   */
+  private Page loadQueryPage(QueryRequest request, Map<String, AttributeValue> exclusiveStartKey) {
+    QueryRequest.Builder builder = request.toBuilder();
+    if (exclusiveStartKey != null) {
+      builder.exclusiveStartKey(exclusiveStartKey);
+    }
 
-    private final TransactWriteItemsRequest transactWriteItemsRequest = new TransactWriteItemsRequest()
-        .withClientRequestToken(UUID.randomUUID().toString());
+    QueryResponse response = dynamoDB.query(builder.build());
+    Map<String, AttributeValue> lastKey = response.hasLastEvaluatedKey() && !response.lastEvaluatedKey().isEmpty()
+      ? response.lastEvaluatedKey()
+      : null;
+
+    return new Page(response.items().iterator(), lastKey);
+  }
+
+  /**
+   * Loads a page of results from a DynamoDB Scan operation.
+   */
+  private Page loadScanPage(ScanRequest request, Map<String, AttributeValue> exclusiveStartKey) {
+    ScanRequest.Builder builder = request.toBuilder();
+    if (exclusiveStartKey != null) {
+      builder.exclusiveStartKey(exclusiveStartKey);
+    }
+
+    ScanResponse response = dynamoDB.scan(builder.build());
+    Map<String, AttributeValue> lastKey = response.hasLastEvaluatedKey() && !response.lastEvaluatedKey().isEmpty()
+      ? response.lastEvaluatedKey()
+      : null;
+
+    return new Page(response.items().iterator(), lastKey);
+  }
+
+  private class TransactionImpl implements Transaction {
+    private final List<TransactWriteItem> transactItems = new ArrayList<>();
+    private final String clientRequestToken = UUID.randomUUID().toString();
 
     @Override
     public void addItemToPut(DynamoDBItem item, boolean enforceItemNotPresent) {
-      Put put = new Put().withTableName(tableName).withItem(toRawDynamoDBItem(item));
+      Put.Builder putBuilder = Put.builder().tableName(tableName).item(toRawDynamoDBItem(item));
+
       if (enforceItemNotPresent) {
-        put.withExpressionAttributeNames(CREATE_ITEM_IF_NOT_EXISTS_ATT_NAMES);
-        put.withConditionExpression(String.format("attribute_not_exists(#p) and attribute_not_exists(%s)", SORT_KEY));
+        putBuilder.expressionAttributeNames(CREATE_ITEM_IF_NOT_EXISTS_ATT_NAMES);
+        putBuilder.conditionExpression(String.format("attribute_not_exists(#p) and attribute_not_exists(%s)", SORT_KEY));
       }
-      transactWriteItemsRequest.withTransactItems(new TransactWriteItem().withPut(put));
+
+      transactItems.add(TransactWriteItem.builder().put(putBuilder.build()).build());
     }
 
     @Override
     public void addItemToDelete(DynamoDBItem item) {
-      transactWriteItemsRequest.withTransactItems(
-          new TransactWriteItem().withDelete(new Delete().withTableName(tableName).withKey(toRawDynamoDBKey(item))));
+      Delete delete = Delete.builder()
+          .tableName(tableName)
+          .key(toRawDynamoDBKey(item))
+          .build();
+      transactItems.add(TransactWriteItem.builder().delete(delete).build());
     }
 
     @Override
@@ -405,9 +467,13 @@ public class AmazonDynamoDBStorage implements DynamoDBStorage {
     @Override
     public boolean commit() {
       try {
-        dynamoDB.transactWriteItems(transactWriteItemsRequest);
+        TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
+            .transactItems(transactItems)
+            .clientRequestToken(clientRequestToken)
+            .build();
+        dynamoDB.transactWriteItems(request);
       } catch (TransactionConflictException | TransactionCanceledException | ConditionalCheckFailedException e) {
-        LOG.error("Transaction conflict occurred on request: {}", transactWriteItemsRequest);
+        LOG.error("Transaction conflict occurred on request: {}", transactItems);
         LOG.error("The conflict is caused by:", e);
         return false;
       } catch (Exception re) {

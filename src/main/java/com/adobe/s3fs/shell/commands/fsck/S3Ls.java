@@ -12,14 +12,7 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.shell.commands.fsck;
 
-import com.adobe.s3fs.filesystemcheck.s3.CartesianS3PrefixPartitioner;
-import com.adobe.s3fs.filesystemcheck.s3.S3Lister;
-import com.adobe.s3fs.filesystemcheck.s3.S3Partitioner;
-import com.adobe.s3fs.filesystemcheck.s3.S3PrefixLister;
-import com.adobe.s3fs.filesystemcheck.s3.SingleDigitS3PrefixPartitioner;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.adobe.s3fs.filesystemcheck.s3.*;
 import com.github.rvesse.airline.annotations.Command;
 import com.github.rvesse.airline.annotations.Option;
 import com.github.rvesse.airline.annotations.restrictions.Required;
@@ -28,6 +21,8 @@ import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import static com.adobe.s3fs.shell.CommandGroups.FSCK;
 
@@ -66,12 +61,11 @@ public class S3Ls implements Runnable {
     // List all prefixes from the bucket in files rooted in directory pointed by bufferDir
     S3Partitioner s3Partitioner =
         new CartesianS3PrefixPartitioner(new SingleDigitS3PrefixPartitioner());
-    AmazonS3 s3 =
-        AmazonS3ClientBuilder.standard()
-            .withClientConfiguration(
-                new ClientConfiguration().withMaxConnections(s3Partitioner.size()))
+    S3Client s3Client =
+        S3Client.builder()
+            .httpClientBuilder(ApacheHttpClient.builder().maxConnections(s3Partitioner.size()))
             .build();
-    S3Lister s3Lister = new S3PrefixLister(s3Partitioner, configuration, s3);
+    S3Lister s3Lister = new S3PrefixLister(s3Partitioner, configuration, s3Client);
     LOG.info("Starting bucket listing");
     s3Lister.list(bucket, bufferDir);
 

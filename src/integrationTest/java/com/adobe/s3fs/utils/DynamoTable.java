@@ -12,7 +12,7 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.utils;
 
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 
 import org.junit.rules.ExternalResource;
 
@@ -22,21 +22,21 @@ public class DynamoTable extends ExternalResource {
 
   private final String table;
   private static final AtomicLong counter = new AtomicLong();
-  private final AmazonDynamoDB dynamoDB;
+  private final DynamoDbClient dynamoDbClient;
 
-  public DynamoTable(AmazonDynamoDB dynamoDB) {
+  public DynamoTable(DynamoDbClient dynamoDbClient) {
     this.table = "dynamo-table" + counter.incrementAndGet();
-    this.dynamoDB = dynamoDB;
+    this.dynamoDbClient = dynamoDbClient;
   }
 
   @Override
-  protected void before() throws Throwable {
-    ITUtils.createMetaTable(dynamoDB, table);
+  protected void before() {
+    ITUtils.createMetaTable(dynamoDbClient, table);
   }
 
   @Override
   protected void after() {
-    ITUtils.deleteMetaTable(dynamoDB, table);
+    ITUtils.deleteMetaTable(dynamoDbClient, table);
   }
 
   public String getTable() {

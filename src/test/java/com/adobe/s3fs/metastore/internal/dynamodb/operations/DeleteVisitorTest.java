@@ -12,18 +12,9 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.internal.dynamodb.operations;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
-import static org.mockito.Mockito.when;
-
 import com.adobe.s3fs.metastore.api.ObjectHandle;
 import com.adobe.s3fs.metastore.api.ObjectMetadata;
 import com.adobe.s3fs.metastore.internal.dynamodb.versioning.VersionedObject;
-
 import org.apache.hadoop.fs.Path;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,6 +25,10 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+
+import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
 public class DeleteVisitorTest {
 
@@ -67,7 +62,7 @@ public class DeleteVisitorTest {
 
     assertEquals(true, deleteVisitor.preVisitDirectoryObject(directory));
 
-    verifyZeroInteractions(mockCallback);
+    verifyNoInteractions(mockCallback);
   }
 
   @Test
@@ -117,7 +112,7 @@ public class DeleteVisitorTest {
     assertEquals(false, deleteVisitor.visitFileObject(file));
 
     verify(mockMetadataOperations, times(1)).delete(file);
-    verifyZeroInteractions(mockCallback);
+    verifyNoInteractions(mockCallback);
   }
 
   @Test
@@ -191,7 +186,7 @@ public class DeleteVisitorTest {
     assertEquals(false, deleteVisitor.postVisitDirectoryObject(directory));
 
     verify(mockMetadataOperations, times(1)).delete(directory);
-    verifyZeroInteractions(mockCallback);
+    verifyNoInteractions(mockCallback);
   }
 
   @Test

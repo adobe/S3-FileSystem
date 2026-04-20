@@ -12,15 +12,10 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.filesystemcheck.cmdloader;
 
+import com.adobe.s3fs.filesystemcheck.s3.DefaultS3ClientFactory;
 import com.adobe.s3fs.filesystemcheck.s3.S3ClientFactory;
-import com.adobe.s3fs.utils.aws.LoggingBackoffStrategy;
+import com.adobe.s3fs.utils.aws.SimpleRetryPolicies;
 import com.adobe.s3fs.utils.mapreduce.TextArrayWritable;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3Client;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
@@ -29,6 +24,8 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -45,8 +42,8 @@ public class S3FsckCmdMapper extends Mapper<Text, TextArrayWritable, NullWritabl
   private static final Text DELETE_OBJECT = new Text("deleteObject");
   // S3 client factory
   private final S3ClientFactory s3ClientFactory;
-  // AmazonS3 client
-  private AmazonS3 s3Client;
+  // S3 client
+  private S3Client s3Client;
   // Map of commands marker to actual S3CommandFactory used for building
   private final Map<Text, S3CommandFactory> cmdFactoryTable;
 
@@ -54,14 +51,7 @@ public class S3FsckCmdMapper extends Mapper<Text, TextArrayWritable, NullWritabl
 
   // Empty constructor needed by Hadoop Framework
   public S3FsckCmdMapper() {
-    this.s3ClientFactory =
-        (retryPolicy, maxConnections) ->
-            AmazonS3Client.builder()
-                .withClientConfiguration(
-                    new ClientConfiguration()
-                        .withRetryPolicy(retryPolicy)
-                        .withMaxConnections(maxConnections))
-                .build();
+    this.s3ClientFactory = DefaultS3ClientFactory.INSTANCE;
     this.cmdFactoryTable = new HashMap<>();
   }
 
@@ -84,12 +74,7 @@ public class S3FsckCmdMapper extends Mapper<Text, TextArrayWritable, NullWritabl
     final int retries = config.getInt(S3_RETRIES, 5);
     final int maxConnections = config.getInt(S3_MAX_CONNECTIONS, 1000);
 
-    RetryPolicy.BackoffStrategy backoffStrategy =
-        new LoggingBackoffStrategy(
-            new PredefinedBackoffStrategies.FullJitterBackoffStrategy(baseDelay, maxDelay));
-    RetryPolicy retryPolicy =
-        new RetryPolicy(
-            PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION, backoffStrategy, retries, true);
+    RetryPolicy retryPolicy = SimpleRetryPolicies.fullJitter(baseDelay, maxDelay, retries);
     this.s3Client = this.s3ClientFactory.newS3Client(retryPolicy, maxConnections);
 
     registerCommandFactories();
@@ -113,12 +98,21 @@ public class S3FsckCmdMapper extends Mapper<Text, TextArrayWritable, NullWritabl
     }
   }
 
+  @Override
+  protected void cleanup(Mapper<Text, TextArrayWritable, NullWritable, NullWritable>.Context context) throws IOException, InterruptedException {
+    try (S3Client s3ClientCopy = s3Client) {
+      // let try-with-resources close it
+    } finally {
+      super.cleanup(context);
+    }
+  }
+
   private void registerCommandFactories() {
     cmdFactoryTable.put(DELETE_OBJECT, new S3DeleteCommandFactory(dryRun));
   }
 
   private interface S3CommandFactory {
-    FsckCommand newS3Command(AmazonS3 s3client, TextArrayWritable parameters);
+    FsckCommand newS3Command(S3Client s3client, TextArrayWritable parameters);
   }
 
   private static class S3DeleteCommandFactory implements S3CommandFactory {
@@ -129,7 +123,7 @@ public class S3FsckCmdMapper extends Mapper<Text, TextArrayWritable, NullWritabl
     }
 
     @Override
-    public FsckCommand newS3Command(AmazonS3 s3client, TextArrayWritable parameters) {
+    public FsckCommand newS3Command(S3Client s3client, TextArrayWritable parameters) {
       FsckCommand realCmd = S3DeleteCommand.newInstance(s3client, parameters.toStrings());
       if (dryRun) {
         return DryrunFsckCommand.newInstance(realCmd);

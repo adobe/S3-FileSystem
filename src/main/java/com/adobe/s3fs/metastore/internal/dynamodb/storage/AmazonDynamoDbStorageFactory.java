@@ -13,9 +13,10 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
 import com.adobe.s3fs.common.context.FileSystemContext;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.google.common.base.Preconditions;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClientBuilder;
 
 public class AmazonDynamoDbStorageFactory implements DynamoDBStorageFactory {
 
@@ -27,17 +28,18 @@ public class AmazonDynamoDbStorageFactory implements DynamoDBStorageFactory {
 
   @Override
   public DynamoDBStorage create(String table, FileSystemContext context) {
+    ApacheHttpClient.Builder httpClient = configuration.getApacheHttpClient();
+    DynamoDbClientBuilder clientBuilder = DynamoDbClient.builder()
+        .httpClientBuilder(httpClient)
+        .overrideConfiguration(configuration.getClientOverrideConfiguration());
 
-    AmazonDynamoDBClientBuilder clientBuilder = AmazonDynamoDBClientBuilder.standard()
-        .withClientConfiguration(configuration.getClientConfigurationForTable());
+    configuration.getEndPointConfiguration().ifPresent(endpointConfiguration -> {
+      clientBuilder.endpointOverride(endpointConfiguration.getServiceEndpoint());
+      clientBuilder.region(endpointConfiguration.getSigningRegion());
+    });
+    configuration.getCredentialsProvider().ifPresent(clientBuilder::credentialsProvider);
 
-    configuration.getEndPointConfiguration()
-        .ifPresent(clientBuilder::withEndpointConfiguration);
-
-    configuration.getCredentialsProvider()
-        .ifPresent(clientBuilder::withCredentials);
-
-    AmazonDynamoDB amazonDynamoDB = clientBuilder.build();
-    return new AmazonDynamoDBStorage(amazonDynamoDB, table, context.runtime());
+    DynamoDbClient dynamoDbClient = clientBuilder.build();
+    return new AmazonDynamoDBStorage(dynamoDbClient, table, context.runtime());
   }
 }

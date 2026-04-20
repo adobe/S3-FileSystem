@@ -15,8 +15,6 @@ package com.adobe.s3fs.shell.commands.tools;
 import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
 import com.adobe.s3fs.operationlog.ObjectMetadataSerialization;
 import com.adobe.s3fs.utils.aws.s3.S3Helpers;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.github.rvesse.airline.annotations.Command;
 import com.github.rvesse.airline.annotations.Option;
 import com.github.rvesse.airline.annotations.restrictions.Required;
@@ -24,9 +22,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -56,7 +57,7 @@ public class OperationLogReader implements Runnable {
   public void run() {
     Preconditions.checkState(!Strings.isNullOrEmpty(physicalPath));
 
-    AmazonS3 amazonS3 = AmazonS3ClientBuilder.standard().build();
+    S3Client s3Client = S3Client.builder().build();
 
     // Retrieve the id from the physical path
     LOG.info("Determining logical path for physical path {}", physicalPath);
@@ -67,7 +68,7 @@ public class OperationLogReader implements Runnable {
     String operationLogPrefix = String.format("%s%s", objHandleId.toString(), INFO_SUFFIX);
     // Let's retrieve the operation log entry associated with this id
     LogicalFileMetadataV2 opLogMetadata =
-        downloadOperationLog(amazonS3, S3Helpers.getBucket(physicalPath), operationLogPrefix)
+        downloadOperationLog(s3Client, S3Helpers.getBucket(physicalPath), operationLogPrefix)
             .orElseThrow(() -> new IllegalStateException("Failed to retrieve operation log!"));
 
     if (!opLogMetadata.getId().equals(objHandleId.toString())) {
@@ -104,8 +105,12 @@ public class OperationLogReader implements Runnable {
   }
 
   private Optional<LogicalFileMetadataV2> downloadOperationLog(
-      AmazonS3 amazonS3, String bucket, String prefix) {
-    try (InputStream inputStream = amazonS3.getObject(bucket, prefix).getObjectContent()) {
+      S3Client s3Client, String bucket, String prefix) {
+    try (ResponseInputStream<GetObjectResponse> inputStream =
+             s3Client.getObject(GetObjectRequest.builder()
+                 .bucket(bucket)
+                 .key(prefix)
+                 .build())) {
       return Optional.ofNullable(ObjectMetadataSerialization.deserializeFromV2(inputStream));
     } catch (IOException e) {
       LOG.error("Exception thrown while getting operation log", e);

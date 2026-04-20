@@ -109,7 +109,7 @@ public class MetadataOperationsTest {
     assertTrue(metadataOperations.store(dir));
 
     verify(mockObjectStorage, times(1)).storeSingleObject(dir);
-    verifyZeroInteractions(mockOperationLog);
+    verifyNoInteractions(mockOperationLog);
   }
 
   @Test
@@ -121,7 +121,7 @@ public class MetadataOperationsTest {
 
     verify(mockObjectStorage, times(1)).storeSingleObject(dir);
     verify(mockObjectLevelMetrics, times(1)).incrFailedDynamoDB();
-    verifyZeroInteractions(mockOperationLog);
+    verifyNoInteractions(mockOperationLog);
 
   }
 
@@ -134,7 +134,7 @@ public class MetadataOperationsTest {
 
     verify(mockObjectLevelMetrics, times(1)).incrFailedPendingOpLog();
     verify(mockOperationLog, times(1)).logCreateOperation(mockObj);
-    verifyZeroInteractions(mockObjectStorage);
+    verifyNoInteractions(mockObjectStorage);
   }
 
   @Test
@@ -190,7 +190,7 @@ public class MetadataOperationsTest {
     assertTrue(metadataOperations.delete(dir));
 
     verify(mockObjectStorage, times(1)).deleteSingleObject(dir);
-    verifyZeroInteractions(mockOperationLog);
+    verifyNoInteractions(mockOperationLog);
   }
 
   @Test
@@ -201,7 +201,7 @@ public class MetadataOperationsTest {
     assertFalse(metadataOperations.delete(dir));
 
     verify(mockObjectStorage, times(1)).deleteSingleObject(dir);
-    verifyZeroInteractions(mockOperationLog);
+    verifyNoInteractions(mockOperationLog);
     verify(mockObjectLevelMetrics, times(1)).incrFailedDynamoDB();
   }
 
@@ -213,7 +213,7 @@ public class MetadataOperationsTest {
     assertFalse(metadataOperations.delete(mockObj));
 
     verify(mockOperationLog, times(1)).logDeleteOperation(mockObj);
-    verifyZeroInteractions(mockObjectStorage);
+    verifyNoInteractions(mockObjectStorage);
     verify(mockObjectLevelMetrics, times(1)).incrFailedPendingOpLog();
   }
 
@@ -326,7 +326,7 @@ public class MetadataOperationsTest {
 
     assertFalse(metadataOperations.renameFile(src, dstPath));
 
-    verifyZeroInteractions(mockObjectStorage);
+    verifyNoInteractions(mockObjectStorage);
     verify(mockObjectLevelMetrics, times(1)).incrFailedPendingOpLog();
   }
 
@@ -412,6 +412,14 @@ public class MetadataOperationsTest {
     doReturn(mockStorageResponse).when(mockObjectStorage).scan(key, 0,3);
 
     assertEquals(mockStorageResponse, metadataOperations.scan(key, 0,3));
+  }
+
+  @Test
+  public void testResourcesAreCleanedUp() {
+    metadataOperations.close();
+
+    verify(mockObjectStorage, times(1)).close();
+    verify(mockOperationLog, times(1)).close();
   }
 
   private VersionedObject newFile() {

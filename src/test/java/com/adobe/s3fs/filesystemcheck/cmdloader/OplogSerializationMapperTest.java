@@ -15,13 +15,11 @@ package com.adobe.s3fs.filesystemcheck.cmdloader;
 import com.adobe.s3fs.common.runtime.FileSystemRuntime;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.LogicalObjectWritable;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.SourceType;
-import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.metastore.api.ObjectOperationType;
+import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.operationlog.LogicalFileMetadataV2;
 import com.adobe.s3fs.operationlog.ObjectMetadataSerialization;
 import com.adobe.s3fs.operationlog.S3MetadataOperationLog;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.ObjectMetadata;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
@@ -33,17 +31,17 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.UUID;
 
 import static com.adobe.s3fs.operationlog.S3MetadataOperationLog.INFO_SUFFIX;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.*;
 
 public class OplogSerializationMapperTest {
 
@@ -56,7 +54,7 @@ public class OplogSerializationMapperTest {
 
   @Mock private Mapper<Text, LogicalObjectWritable, NullWritable, NullWritable>.Context mockContext;
 
-  @Mock private AmazonS3 mockAmazonS3;
+  @Mock private S3Client mockS3Client;
 
   @Mock private FileSystemRuntime mockRuntime;
 
@@ -70,7 +68,7 @@ public class OplogSerializationMapperTest {
     config = new Configuration(true);
     config.setBoolean("dryRun", false);
     config.set("fs.s3k.cmd.loader.s3.bucket", BUCKET);
-    opLogExtended = new S3MetadataOperationLog(mockAmazonS3, BUCKET, mockRuntime);
+    opLogExtended = new S3MetadataOperationLog(mockS3Client, BUCKET, mockRuntime);
     when(mockContext.getConfiguration()).thenReturn(config);
     when(mockContext.getCounter(any(CmdLoaderCounters.class))).thenReturn(mockCounter);
     mapper = new OplogFsckCmdMapper((config1, bucket) -> opLogExtended);
@@ -94,16 +92,16 @@ public class OplogSerializationMapperTest {
     mapper.map(
         new Text("updateOpLog:" + String.format("%s%s", uuid, INFO_SUFFIX)), opLog, mockContext);
     // Verify
-    ArgumentCaptor<InputStream> inputStreamCaptor = ArgumentCaptor.forClass(InputStream.class);
-    verify(mockAmazonS3, times(1))
+    ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
+    verify(mockS3Client, times(1))
         .putObject(
-            eq(BUCKET),
-            eq(uuid.toString() + INFO_SUFFIX),
-            inputStreamCaptor.capture(),
-            any(ObjectMetadata.class));
+            argThat((PutObjectRequest req) ->
+                req.bucket().equals(BUCKET) && req.key().equals(uuid.toString() + INFO_SUFFIX)),
+            requestBodyCaptor.capture());
 
-    InputStream result = inputStreamCaptor.getValue();
-    LogicalFileMetadataV2 deserializeResult = ObjectMetadataSerialization.deserializeFromV2(result);
+    RequestBody result = requestBodyCaptor.getValue();
+    LogicalFileMetadataV2 deserializeResult = ObjectMetadataSerialization.deserializeFromV2(
+        result.contentStreamProvider().newStream());
 
     Assert.assertEquals("Size mismatch!", 100L, deserializeResult.getSize());
     Assert.assertEquals("Creation time mismatch!", 1000L, deserializeResult.getCreationTime());
@@ -138,16 +136,16 @@ public class OplogSerializationMapperTest {
     mapper.map(
         new Text("updateOpLog:" + String.format("%s%s", uuid, INFO_SUFFIX)), opLog, mockContext);
     // Verify
-    ArgumentCaptor<InputStream> inputStreamCaptor = ArgumentCaptor.forClass(InputStream.class);
-    verify(mockAmazonS3, times(1))
+    ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
+    verify(mockS3Client, times(1))
         .putObject(
-            eq(BUCKET),
-            eq(uuid.toString() + INFO_SUFFIX),
-            inputStreamCaptor.capture(),
-            any(ObjectMetadata.class));
+            argThat((PutObjectRequest req) ->
+                req.bucket().equals(BUCKET) && req.key().equals(uuid + INFO_SUFFIX)),
+            requestBodyCaptor.capture());
 
-    InputStream result = inputStreamCaptor.getValue();
-    LogicalFileMetadataV2 deserializeResult = ObjectMetadataSerialization.deserializeFromV2(result);
+    RequestBody result = requestBodyCaptor.getValue();
+    LogicalFileMetadataV2 deserializeResult = ObjectMetadataSerialization.deserializeFromV2(
+        result.contentStreamProvider().newStream());
 
     Assert.assertEquals("Size mismatch!", 100L, deserializeResult.getSize());
     Assert.assertEquals("Creation time mismatch!", 1000L, deserializeResult.getCreationTime());

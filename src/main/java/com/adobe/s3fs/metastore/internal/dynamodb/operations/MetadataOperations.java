@@ -20,13 +20,10 @@ import com.adobe.s3fs.metastore.internal.dynamodb.versioning.VersionedObject;
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.fs.Path;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-public class MetadataOperations implements Closeable {
+public class MetadataOperations implements AutoCloseable {
 
   private final ObjectMetadataStorage objectStorage;
   private final MetadataOperationLog operationLog;
@@ -272,7 +269,10 @@ public class MetadataOperations implements Closeable {
   }
 
   @Override
-  public void close() throws IOException {
-    operationLog.close();
+  public void close() {
+    try (ObjectMetadataStorage objectStorageCopy = objectStorage;
+         MetadataOperationLog operationLogCopy = operationLog) {
+      // let try-with-resources close it
+    }
   }
 }

@@ -18,8 +18,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.adobe.s3fs.common.exceptions.UncommittedFileException;
@@ -248,7 +248,7 @@ public class FileSystemImplementationTest {
     try {
       FSDataInputStream ignored = fileSystemImplementation.open(path);
     } finally {
-      verifyZeroInteractions(mockPhysicalStorage);
+      verifyNoInteractions(mockPhysicalStorage);
     }
   }
 
@@ -768,7 +768,7 @@ public class FileSystemImplementationTest {
       } catch (IOException ignored) {
       }
     }
-    verifyZeroInteractions(mockFsMetrics);
+    verifyNoInteractions(mockFsMetrics);
   }
 
   @Test
@@ -842,8 +842,8 @@ public class FileSystemImplementationTest {
 
     assertNull(shouldBeNull);
     verify(mockMetadataStore, times(1)).createObject(any(ObjectMetadata.class));
-    verifyZeroInteractions(mockPhysicalStorage);
-    verifyZeroInteractions(mockFsMetrics);
+    verifyNoInteractions(mockPhysicalStorage);
+    verifyNoInteractions(mockFsMetrics);
   }
 
   @Test

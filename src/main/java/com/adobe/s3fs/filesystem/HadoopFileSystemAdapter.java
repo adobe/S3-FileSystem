@@ -52,7 +52,7 @@ import java.util.EnumSet;
 /**
  * Main implementation of the {@link FileSystem}.
  */
-@SuppressWarnings("squid:S2095") // MetdataStore and PhysicalStorage are closed by FileSystemImplementation
+@SuppressWarnings("squid:S2095") // MetadataStore and PhysicalStorage are closed by FileSystemImplementation
 public class HadoopFileSystemAdapter extends FileSystem {
 
   private URI uri;
@@ -171,7 +171,7 @@ public class HadoopFileSystemAdapter extends FileSystem {
   }
 
   @Override
-  public FSDataOutputStream append(Path path, int bufferSize, Progressable progressable) throws IOException {
+  public FSDataOutputStream append(Path path, int bufferSize, Progressable progressable) {
     throw new UnsupportedOperationException();
   }
 

@@ -325,8 +325,10 @@ public class FileSystemImplementation implements Closeable {
 
   @Override
   public void close() throws IOException {
-    metadataStore.close();
-    physicalStorage.close();
+    try (MetadataStore metadataStoreCopy = metadataStore;
+         PhysicalStorage physicalStorageCopy = physicalStorage) {
+      // let try-with-resources close it
+    }
   }
 
   private void throwIfOperationIsOnRoot(Path path, String operation) throws IOException {
