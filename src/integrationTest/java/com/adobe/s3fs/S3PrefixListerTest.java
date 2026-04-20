@@ -47,13 +47,15 @@ import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.adobe.s3fs.utils.ITUtils.LOCALSTACK_IMAGE;
+
 public class S3PrefixListerTest {
 
   @ClassRule public static Network network = Network.newNetwork();
 
   @ClassRule
   public static LocalStackContainer localStackContainer =
-      new LocalStackContainer()
+      new LocalStackContainer(LOCALSTACK_IMAGE)
           .withNetwork(network)
           .withServices(LocalStackContainer.Service.S3)
           .withNetworkAliases("localstack");

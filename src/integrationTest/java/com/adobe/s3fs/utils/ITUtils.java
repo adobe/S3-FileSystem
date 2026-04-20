@@ -14,7 +14,8 @@ package com.adobe.s3fs.utils;
 
 import com.adobe.s3fs.metastore.internal.dynamodb.storage.DynamoDBStorageConfiguration;
 import com.adobe.s3fs.operationlog.S3MetadataOperationLogFactory;
-import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
@@ -28,13 +29,19 @@ import com.amazonaws.services.s3.model.S3ObjectSummary;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
-import org.junit.rules.TemporaryFolder;
 import org.testcontainers.containers.localstack.LocalStackContainer;
+import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class ITUtils {
+
+  /**
+   * 4.14.0 is the latest version without authentication.
+   */
+  public static final DockerImageName LOCALSTACK_IMAGE =
+      DockerImageName.parse("localstack/localstack:4.14.0");
 
   public static void createMetaTableIfNotExists(AmazonDynamoDB dynamoDB, String tableName) {
     try {
@@ -69,17 +76,15 @@ public final class ITUtils {
   }
 
   public static void configureDynamoAccess(LocalStackContainer container, Configuration configuration, String bucket) {
-    AwsClientBuilder.EndpointConfiguration endpointConfiguration = container.getEndpointConfiguration(LocalStackContainer.Service.DYNAMODB);
     configuration.set(DynamoDBStorageConfiguration.AWS_ENDPOINT + "." + bucket,
-                      endpointConfiguration.getServiceEndpoint());
+                      container.getEndpoint().toString());
     configuration.set(DynamoDBStorageConfiguration.AWS_SIGNING_REGION + "." + bucket,
-                      endpointConfiguration.getSigningRegion());
+                      container.getRegion());
 
-    AWSCredentials awsCredentials = container.getDefaultCredentialsProvider().getCredentials();
     configuration.set(DynamoDBStorageConfiguration.AWS_ACCESS_KEY_ID + "." + bucket,
-                      awsCredentials.getAWSAccessKeyId());
+                      container.getAccessKey());
     configuration.set(DynamoDBStorageConfiguration.AWS_SECRET_ACCESS_KEY + "." + bucket,
-                      awsCredentials.getAWSSecretKey());
+                      container.getSecretKey());
   }
 
   public static void configureS3OperationLog(Configuration configuration, String dataBucket, String operationLogBucket) {
@@ -87,13 +92,11 @@ public final class ITUtils {
   }
 
   public static void configureS3OperationLogAccess(LocalStackContainer container, Configuration configuration, String bucket) {
-    AwsClientBuilder.EndpointConfiguration endpointConfiguration = container.getEndpointConfiguration(LocalStackContainer.Service.S3);
-    configuration.set(S3MetadataOperationLogFactory.AWS_ENDPOINT + "." + bucket, endpointConfiguration.getServiceEndpoint());
-    configuration.set(S3MetadataOperationLogFactory.AWS_SIGNING_REGION + "." + bucket, endpointConfiguration.getSigningRegion());
+    configuration.set(S3MetadataOperationLogFactory.AWS_ENDPOINT + "." + bucket, container.getEndpoint().toString());
+    configuration.set(S3MetadataOperationLogFactory.AWS_SIGNING_REGION + "." + bucket, container.getRegion());
 
-    AWSCredentials awsCredentials = container.getDefaultCredentialsProvider().getCredentials();
-    configuration.set(S3MetadataOperationLogFactory.AWS_ACCESS_KEY_ID + "." + bucket, awsCredentials.getAWSAccessKeyId());
-    configuration.set(S3MetadataOperationLogFactory.AWS_SECRET_ACCESS_KEY + "." + bucket, awsCredentials.getAWSSecretKey());
+    configuration.set(S3MetadataOperationLogFactory.AWS_ACCESS_KEY_ID + "." + bucket, container.getAccessKey());
+    configuration.set(S3MetadataOperationLogFactory.AWS_SECRET_ACCESS_KEY + "." + bucket, container.getSecretKey());
   }
 
   public static void configureS3AAsUnderlyingFileSystem(LocalStackContainer container, Configuration configuration, String bucket,
@@ -106,10 +109,9 @@ public final class ITUtils {
     configuration.setClass("fs.s3a.impl", S3AFileSystem.class, FileSystem.class);
     configuration.set("fs.s3a.buffer.dir", tmpPath);
 
-    configuration.set("fs.s3a.access.key", container.getDefaultCredentialsProvider().getCredentials().getAWSAccessKeyId());
-    configuration.set("fs.s3a.secret.key", container.getDefaultCredentialsProvider().getCredentials().getAWSSecretKey());
-    configuration.set("fs.s3a.endpoint",
-                      container.getEndpointConfiguration(LocalStackContainer.Service.S3).getServiceEndpoint());
+    configuration.set("fs.s3a.access.key", container.getAccessKey());
+    configuration.set("fs.s3a.secret.key", container.getSecretKey());
+    configuration.set("fs.s3a.endpoint", container.getEndpoint().toString());
   }
 
   public static void mapBucketToTable(Configuration configuration, String bucket, String table) {
@@ -140,15 +142,29 @@ public final class ITUtils {
 
   public static AmazonS3 amazonS3(LocalStackContainer localStackContainer) {
     return AmazonS3ClientBuilder.standard()
-        .withEndpointConfiguration(localStackContainer.getEndpointConfiguration(LocalStackContainer.Service.S3))
-        .withCredentials(localStackContainer.getDefaultCredentialsProvider())
+        .withEndpointConfiguration(
+            new AwsClientBuilder.EndpointConfiguration(
+                localStackContainer.getEndpoint().toString(),
+                localStackContainer.getRegion()))
+        .withCredentials(
+            new AWSStaticCredentialsProvider(
+                new BasicAWSCredentials(
+                    localStackContainer.getAccessKey(),
+                    localStackContainer.getSecretKey())))
         .build();
   }
 
   public static AmazonDynamoDB amazonDynamoDB(LocalStackContainer localStackContainer) {
     return AmazonDynamoDBClientBuilder.standard()
-        .withEndpointConfiguration(localStackContainer.getEndpointConfiguration(LocalStackContainer.Service.DYNAMODB))
-        .withCredentials(localStackContainer.getDefaultCredentialsProvider())
+        .withEndpointConfiguration(
+            new AwsClientBuilder.EndpointConfiguration(
+                localStackContainer.getEndpoint().toString(),
+                localStackContainer.getRegion()))
+        .withCredentials(
+            new AWSStaticCredentialsProvider(
+                new BasicAWSCredentials(
+                    localStackContainer.getAccessKey(),
+                    localStackContainer.getSecretKey())))
         .build();
   }
 }

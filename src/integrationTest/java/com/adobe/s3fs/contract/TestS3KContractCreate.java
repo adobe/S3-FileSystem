@@ -24,13 +24,15 @@ import org.junit.rules.TemporaryFolder;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 
+import static com.adobe.s3fs.utils.ITUtils.LOCALSTACK_IMAGE;
+
 public class TestS3KContractCreate extends AbstractContractCreateTest {
 
   @ClassRule
   public static Network network = Network.newNetwork();
 
   @ClassRule
-  public static LocalStackContainer localStackContainer = new LocalStackContainer()
+  public static LocalStackContainer localStackContainer = new LocalStackContainer(LOCALSTACK_IMAGE)
       .withNetwork(network)
       .withServices(LocalStackContainer.Service.DYNAMODB, LocalStackContainer.Service.S3)
       .withNetworkAliases("localstack");
