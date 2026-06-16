@@ -12,15 +12,14 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.shell.commands.fsck;
 
-import com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemCheckVerifyReducer;
 import com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemCheckPartialS3Mapper;
+import com.adobe.s3fs.filesystemcheck.mapreduce.FileSystemCheckVerifyReducer;
 import com.adobe.s3fs.filesystemcheck.mapreduce.MetadataStorePartialRestoreMapper;
 import com.adobe.s3fs.filesystemcheck.mapreduce.MetadataStoreScanInputFormat;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.LogicalObjectWritable;
 import com.adobe.s3fs.filesystemcheck.mapreduce.data.VersionedObjectWritable;
 import com.adobe.s3fs.filesystemcheck.s3.RawS3ScanInputFormat;
 import com.adobe.s3fs.shell.helpers.CommaSeparatedValues;
-import com.adobe.s3fs.utils.aws.s3.S3Helpers;
 import com.adobe.s3fs.utils.exceptions.UncheckedException;
 import com.adobe.s3fs.utils.mapreduce.HadoopConfigUtils;
 import com.adobe.s3fs.utils.mapreduce.TextArrayWritable;

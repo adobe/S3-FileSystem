@@ -31,8 +31,8 @@ import org.mockito.MockitoAnnotations;
 import java.util.*;
 
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 public class HashingAwareObjectStorageTest {
@@ -481,6 +481,13 @@ public class HashingAwareObjectStorageTest {
   @Test(expected = IllegalArgumentException.class)
   public void testScanThrowsErrorForInvalidPartitionCount() {
     Iterable<VersionedObject> ignored = objectStorage.scan(new Path("ks://bucket/d"),0, 0);
+  }
+
+  @Test
+  public void testResourcesAreCleanedUp() {
+    objectStorage.close();
+
+    verify(mockDynamoDBStorage, times(1)).close();
   }
 
   private static void assertVersionedObjectMatchesDynamoItem(VersionedObject versionedObject, DynamoDBItem item) {

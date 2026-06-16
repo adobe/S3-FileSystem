@@ -99,7 +99,7 @@ public class PurgeMetadata implements Runnable {
     }
 
     @Override
-    protected void map(Void key, VersionedObjectHandle value, Context context) throws IOException, InterruptedException {
+    protected void map(Void key, VersionedObjectHandle value, Context context) {
       try {
         if (metadataStoreExtended.deleteSingleObject(value, it -> Boolean.TRUE)) {
           context.getCounter(PurgeCounters.GROUP, PurgeCounters.SUCCESSFUL).increment(1L);
@@ -114,8 +114,11 @@ public class PurgeMetadata implements Runnable {
 
     @Override
     protected void cleanup(Context context) throws IOException, InterruptedException {
-      metadataStoreExtended.close();
-      super.cleanup(context);
+      try (MetadataStore metadataStoreExtendedCopy = metadataStoreExtended) {
+        // let try-with-resources close it
+      } finally {
+        super.cleanup(context);
+      }
     }
   }
 }

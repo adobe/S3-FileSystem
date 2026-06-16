@@ -14,17 +14,15 @@ package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
 import com.adobe.s3fs.metastore.api.ObjectMetadata;
 import com.adobe.s3fs.metastore.internal.dynamodb.versioning.VersionedObject;
-
 import org.apache.hadoop.fs.Path;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * Defines the contract for basic CRUD operations of {@link ObjectMetadata} instances.
  */
-public interface ObjectMetadataStorage {
+public interface ObjectMetadataStorage extends AutoCloseable {
 
   /**
    * Creates a transaction.
@@ -53,6 +51,12 @@ public interface ObjectMetadataStorage {
   CompletableFuture<Iterable<VersionedObject>> listAsync(VersionedObject object);
 
   Iterable<VersionedObject> scan(Path key, int partitionIndex, int partitionCount);
+
+  /**
+   * Closes the underlying resources.
+   */
+  @Override
+  void close();
 
   /**
    * Defines an interface that can be used to store and remove multiple {@link ObjectMetadata} instances as an atomic operation.

@@ -12,24 +12,26 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.utils.aws.s3;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.ListObjectsRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
+import com.google.common.collect.FluentIterable;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
-public class StreamingPrefixKeysIterator implements Iterator<S3ObjectSummary> {
-  private final AmazonS3 s3Client;
+public class StreamingPrefixKeysIterator implements Iterator<S3ObjectLocation> {
+  private final S3Client s3Client;
   private final String bucket;
   private final String rootPrefix;
 
-  private ObjectListing currentListing;
-  private Iterator<S3ObjectSummary> currentBatch;
+  private ListObjectsV2Response currentListing;
+  private Iterator<S3ObjectLocation> currentBatch;
 
-  public StreamingPrefixKeysIterator(AmazonS3 s3Client, String bucket, String rootPrefix) {
+  public StreamingPrefixKeysIterator(S3Client s3Client, String bucket, String rootPrefix) {
     this.s3Client = Objects.requireNonNull(s3Client);
     this.bucket = Objects.requireNonNull(bucket);
     this.rootPrefix = Objects.requireNonNull(rootPrefix);
@@ -38,10 +40,13 @@ public class StreamingPrefixKeysIterator implements Iterator<S3ObjectSummary> {
   @Override
   public boolean hasNext() {
     if (currentListing == null) {
-      ListObjectsRequest listObjectsRequest = new ListObjectsRequest().withBucketName(bucket)
-          .withMaxKeys(Integer.MAX_VALUE).withPrefix(rootPrefix);
-      this.currentListing = s3Client.listObjects(listObjectsRequest);
-      this.currentBatch = this.currentListing.getObjectSummaries().iterator();
+      ListObjectsV2Request listObjectsRequest = ListObjectsV2Request.builder()
+          .bucket(bucket)
+          .maxKeys(Integer.MAX_VALUE)
+          .prefix(rootPrefix)
+          .build();
+      this.currentListing = s3Client.listObjectsV2(listObjectsRequest);
+      this.currentBatch = toBucketAwareIterator(this.currentListing.contents());
     }
 
     boolean inCurrentBatch = this.currentBatch.hasNext();
@@ -50,18 +55,30 @@ public class StreamingPrefixKeysIterator implements Iterator<S3ObjectSummary> {
     } else if (!this.currentListing.isTruncated()) {
       return false;
     } else {
-      this.currentListing = s3Client.listNextBatchOfObjects(this.currentListing);
-      this.currentBatch = this.currentListing.getObjectSummaries().iterator();
+      ListObjectsV2Request nextRequest = ListObjectsV2Request.builder()
+          .bucket(bucket)
+          .maxKeys(Integer.MAX_VALUE)
+          .prefix(rootPrefix)
+          .continuationToken(this.currentListing.nextContinuationToken())
+          .build();
+      this.currentListing = s3Client.listObjectsV2(nextRequest);
+      this.currentBatch = toBucketAwareIterator(this.currentListing.contents());
       return this.currentBatch.hasNext();
     }
   }
 
   @Override
-  public S3ObjectSummary next() {
+  public S3ObjectLocation next() {
     if (!this.hasNext()) {
       throw new NoSuchElementException();
     } else {
       return this.currentBatch.next();
     }
+  }
+
+  private Iterator<S3ObjectLocation> toBucketAwareIterator(Iterable<S3Object> contents) {
+    return FluentIterable.from(contents)
+            .transform(s3Object -> S3ObjectLocation.builder().bucket(bucket).s3Object(s3Object).build())
+            .iterator();
   }
 }

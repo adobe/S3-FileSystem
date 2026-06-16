@@ -16,19 +16,21 @@ import com.adobe.s3fs.common.configuration.FileSystemConfiguration;
 import com.adobe.s3fs.common.context.FileSystemContext;
 import com.adobe.s3fs.metastore.api.MetadataOperationLog;
 import com.adobe.s3fs.metastore.api.MetadataOperationLogFactory;
-
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.core.retry.backoff.BackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.FullJitterBackoffStrategy;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
+
+import java.net.URI;
+import java.time.Duration;
 
 public class S3MetadataOperationLogFactory implements MetadataOperationLogFactory, Configurable {
 
@@ -53,9 +55,9 @@ public class S3MetadataOperationLogFactory implements MetadataOperationLogFactor
 
   @Override
   public MetadataOperationLog create(FileSystemContext context) {
-    AmazonS3 amazonS3 = createS3Client(context.configuration());
+    S3Client s3Client = createS3Client(context.configuration());
     String bucket = context.configuration().getString(OPERATION_LOG_BUCKET);
-    return new S3MetadataOperationLog(amazonS3, bucket, context.runtime());
+    return new S3MetadataOperationLog(s3Client, bucket, context.runtime());
   }
 
   @Override
@@ -68,8 +70,8 @@ public class S3MetadataOperationLogFactory implements MetadataOperationLogFactor
     return configuration;
   }
 
-  private AmazonS3 createS3Client(FileSystemConfiguration configuration) {
-    AmazonS3ClientBuilder clientBuilder = AmazonS3ClientBuilder.standard();
+  private S3Client createS3Client(FileSystemConfiguration configuration) {
+    S3ClientBuilder clientBuilder = S3Client.builder();
 
     int baseDelay = configuration.contextAware().getInt(BASE_EXPONENTIAL_DELAY_PROP, DEFAULT_BASE_EXPONENTIAL_DELAY);
     int maxDelay = configuration.contextAware().getInt(MAX_EXPONENTIAL_DELAY, DEFAULT_MAX_EXPONENTIAL_DELAY);
@@ -77,33 +79,42 @@ public class S3MetadataOperationLogFactory implements MetadataOperationLogFactor
     int maxConnections = configuration.contextAware().getInt(MAX_HTTP_CONNECTIONS, DEFAULT_MAX_HTTP_CONNECTIONS);
     boolean useFullJitter = configuration.contextAware().getBoolean(USE_FULL_JITTER_BACKOFF, DEFAULT_USE_FULL_JITTER);
 
-    RetryPolicy.BackoffStrategy backoffStrategy = null;
+    BackoffStrategy backoffStrategy;
     if (useFullJitter) {
-      backoffStrategy = new PredefinedBackoffStrategies.FullJitterBackoffStrategy(baseDelay, maxDelay);
+      backoffStrategy = FullJitterBackoffStrategy.builder()
+          .baseDelay(Duration.ofMillis(baseDelay))
+          .maxBackoffTime(Duration.ofMillis(maxDelay))
+          .build();
     } else {
-      backoffStrategy = new PredefinedBackoffStrategies.EqualJitterBackoffStrategy(baseDelay, maxDelay);
+      backoffStrategy = EqualJitterBackoffStrategy.builder()
+          .baseDelay(Duration.ofMillis(baseDelay))
+          .maxBackoffTime(Duration.ofMillis(maxDelay))
+          .build();
     }
 
-    RetryPolicy retryPolicy = new RetryPolicy(PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION,
-                                              backoffStrategy,
-                                              maxRetries,
-                                              true);
+    RetryPolicy retryPolicy = RetryPolicy.builder()
+        .backoffStrategy(backoffStrategy)
+        .throttlingBackoffStrategy(backoffStrategy)
+        .numRetries(maxRetries)
+        .build();
+
+    clientBuilder.overrideConfiguration(config -> config.retryPolicy(retryPolicy));
+    clientBuilder.httpClientBuilder(ApacheHttpClient.builder().maxConnections(maxConnections));
 
     String accessKey = configuration.getString(AWS_ACCESS_KEY_ID, "");
     String secretKey = configuration.getString(AWS_SECRET_ACCESS_KEY, "");
     if (!"".equals(accessKey) && !"".equals(secretKey)) {
-      clientBuilder.withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(accessKey, secretKey)));
+      clientBuilder.credentialsProvider(
+          StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)));
     }
 
     String endpoint = configuration.getString(AWS_ENDPOINT, "");
     String signingRegion = configuration.getString(AWS_SIGNING_REGION, "");
     if (!"".equals(endpoint) && !"".equals(signingRegion)) {
-      clientBuilder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, signingRegion));
+      clientBuilder.endpointOverride(URI.create(endpoint));
+      clientBuilder.region(Region.of(signingRegion));
     }
 
-    return clientBuilder.withClientConfiguration(new ClientConfiguration()
-                                     .withRetryPolicy(retryPolicy)
-                                     .withMaxConnections(maxConnections))
-        .build();
+    return clientBuilder.build();
   }
 }

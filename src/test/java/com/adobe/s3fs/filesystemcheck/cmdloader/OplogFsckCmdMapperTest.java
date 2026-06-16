@@ -76,7 +76,7 @@ public class OplogFsckCmdMapperTest {
   public void testNoInteraction() throws IOException, InterruptedException {
     mapper.map(new Text("unknownCommand"), Mockito.mock(LogicalObjectWritable.class), mockContext);
     // Verify
-    Mockito.verifyZeroInteractions(mockOplogExtended);
+    Mockito.verifyNoInteractions(mockOplogExtended);
   }
 
   @Test
@@ -130,7 +130,7 @@ public class OplogFsckCmdMapperTest {
         new Text("updateOpLog:" + String.format("%s%s", uuid, "")),
         Mockito.mock(LogicalObjectWritable.class),
         mockContext);
-    Mockito.verifyZeroInteractions(mockOplogExtended);
+    Mockito.verifyNoInteractions(mockOplogExtended);
   }
 
   private ObjectMetadata convertToObjectMetadata(LogicalObjectWritable oplog) {

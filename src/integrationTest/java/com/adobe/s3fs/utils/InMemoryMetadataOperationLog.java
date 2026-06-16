@@ -16,7 +16,6 @@ import com.adobe.s3fs.metastore.api.MetadataOperationLog;
 import com.adobe.s3fs.metastore.api.ObjectMetadata;
 import com.adobe.s3fs.metastore.api.VersionedObjectHandle;
 
-import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -111,8 +110,7 @@ public class InMemoryMetadataOperationLog implements MetadataOperationLog {
   }
 
   @Override
-  public void close() throws IOException {
-
+  public void close() {
   }
 
   public ConcurrentLinkedQueue<ObjectMetadata> getCreatedObjects() {

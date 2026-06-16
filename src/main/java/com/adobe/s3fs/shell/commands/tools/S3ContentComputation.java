@@ -14,11 +14,11 @@ package com.adobe.s3fs.shell.commands.tools;
 
 import com.adobe.s3fs.filesystemcheck.s3.S3BucketRawScanner;
 import com.adobe.s3fs.filesystemcheck.s3.S3Partitioner;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import com.adobe.s3fs.utils.stream.StreamUtils;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.MoreExecutors;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,27 +28,27 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class S3ContentComputation {
-  private final AmazonS3 amazonS3;
+  private final S3Client s3Client;
   private final S3Partitioner partitioner;
 
-  public S3ContentComputation(AmazonS3 amazonS3, S3Partitioner partitioner) {
-    this.amazonS3 = Preconditions.checkNotNull(amazonS3);
+  public S3ContentComputation(S3Client s3Client, S3Partitioner partitioner) {
+    this.s3Client = Preconditions.checkNotNull(s3Client);
     this.partitioner = Preconditions.checkNotNull(partitioner);
   }
 
   public Content compute(String bucket) {
-    List<Iterable<S3ObjectSummary>> scannedPartitions = new S3BucketRawScanner(bucket, partitioner, amazonS3).scan();
+    List<Iterable<S3ObjectLocation>> scannedPartitions = new S3BucketRawScanner(bucket, partitioner, s3Client).scan();
     ExecutorService executor = Executors.newFixedThreadPool(scannedPartitions.size());
 
     try {
       List<Future<Content>> futures = new ArrayList<>(scannedPartitions.size());
 
-      for (final Iterable<S3ObjectSummary> partition : scannedPartitions) {
+      for (final Iterable<S3ObjectLocation> partition : scannedPartitions) {
         futures.add(executor.submit(() -> {
           long partitionSize = 0;
           long objectCount = 0;
-          for (S3ObjectSummary objectSummary : partition) {
-            partitionSize += objectSummary.getSize();
+          for (S3ObjectLocation s3ObjectLocation : partition) {
+            partitionSize += s3ObjectLocation.s3Object().size();
             objectCount++;
           }
           return new Content(objectCount, partitionSize);

@@ -12,32 +12,32 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.utils.aws;
 
-import com.amazonaws.AmazonClientException;
-import com.amazonaws.AmazonWebServiceRequest;
-import com.amazonaws.retry.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.retry.RetryPolicyContext;
+import software.amazon.awssdk.core.retry.backoff.BackoffStrategy;
 
+import java.time.Duration;
 import java.util.Objects;
 
 /**
  * A backoff strategy which logs its arguments before delegating the work to the injected backoff
  * strategy
  */
-public class LoggingBackoffStrategy implements RetryPolicy.BackoffStrategy {
+public class LoggingBackoffStrategy implements BackoffStrategy {
 
   private final Logger logger = LoggerFactory.getLogger(LoggingBackoffStrategy.class);
 
-  private final RetryPolicy.BackoffStrategy underlyingBackoffStrategy;
+  private final BackoffStrategy underlyingBackoffStrategy;
 
-  public LoggingBackoffStrategy(RetryPolicy.BackoffStrategy underlyingBackoffStrategy) {
+  public LoggingBackoffStrategy(BackoffStrategy underlyingBackoffStrategy) {
     this.underlyingBackoffStrategy = Objects.requireNonNull(underlyingBackoffStrategy);
   }
 
   @Override
-  public long delayBeforeNextRetry(
-      AmazonWebServiceRequest originalRequest, AmazonClientException ex, int retries) {
-    logger.info("delayBeforeNextRetry retries {}, exception {}", retries, ex);
-    return underlyingBackoffStrategy.delayBeforeNextRetry(originalRequest, ex, retries);
+  public Duration computeDelayBeforeNextRetry(RetryPolicyContext context) {
+    logger.info("computeDelayBeforeNextRetry retries {}, exception {}",
+        context.retriesAttempted(), context.exception().toString());
+    return underlyingBackoffStrategy.computeDelayBeforeNextRetry(context);
   }
 }

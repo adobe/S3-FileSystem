@@ -16,17 +16,19 @@ package com.adobe.s3fs.operationlog;
 
 import com.adobe.s3fs.common.runtime.FileSystemRuntime;
 import com.adobe.s3fs.metastore.api.*;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.PutObjectResult;
 import org.apache.hadoop.fs.Path;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,12 +38,12 @@ import static org.mockito.Mockito.*;
 public class S3MetadataOperationLogTest {
 
   @Mock
-  private AmazonS3 mockAmazonS3;
+  private S3Client mockS3Client;
 
   @Mock
   private FileSystemRuntime mockRuntime;
 
-  private ArgumentCaptor<InputStream> inputStreamArgumentCaptor;
+  private ArgumentCaptor<RequestBody> requestBodyArgumentCaptor;
 
   private S3MetadataOperationLog s3MetadataOperationLog;
 
@@ -49,25 +51,27 @@ public class S3MetadataOperationLogTest {
   public void init() {
     MockitoAnnotations.initMocks(this);
 
-    inputStreamArgumentCaptor = ArgumentCaptor.forClass(InputStream.class);
-    s3MetadataOperationLog = new S3MetadataOperationLog(mockAmazonS3, "bucket", mockRuntime);
+    requestBodyArgumentCaptor = ArgumentCaptor.forClass(RequestBody.class);
+    s3MetadataOperationLog = new S3MetadataOperationLog(mockS3Client, "bucket", mockRuntime);
   }
 
   @Test
   public void testLogCreateObjectIsSuccessful() throws IOException {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle = s3MetadataOperationLog.logCreateOperation(objectHandle);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().commit());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.COMMITTED);
   }
 
@@ -75,22 +79,24 @@ public class S3MetadataOperationLogTest {
   public void testLogCreateObjectRollbackIsSuccessful() throws IOException {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle = s3MetadataOperationLog.logCreateOperation(objectHandle);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
     assertTrue(logEntryHandle.get().rollback());
-    verify(mockAmazonS3).deleteObject(eq("bucket"), eq(prefix));
+    verify(mockS3Client).deleteObject(argThat((DeleteObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)));
   }
 
   @Test
   public void testLogCreateObjectOnFailure() {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle = s3MetadataOperationLog.logCreateOperation(objectHandle);
 
@@ -101,16 +107,17 @@ public class S3MetadataOperationLogTest {
   public void testLogCreateObjectOnRollbackFailure() throws IOException {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle = s3MetadataOperationLog.logCreateOperation(objectHandle);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    clearInvocations(mockAmazonS3);
-    doThrow(new RuntimeException()).when(mockAmazonS3).deleteObject(anyString(), anyString());
+    clearInvocations(mockS3Client);
+    doThrow(new RuntimeException()).when(mockS3Client).deleteObject(any(DeleteObjectRequest.class));
     assertFalse(logEntryHandle.get().rollback());
   }
 
@@ -118,15 +125,16 @@ public class S3MetadataOperationLogTest {
   public void testLogCreateObjectOnCommitFailure() throws IOException {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle = s3MetadataOperationLog.logCreateOperation(objectHandle);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     assertFalse(logEntryHandle.get().commit());
   }
 
@@ -137,18 +145,20 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle2 = mockObjectHandle(5, id, mockObjectMetadata(45));
 
     String prefix = id + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().commit());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.COMMITTED);
   }
 
@@ -159,18 +169,20 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle2 = mockObjectHandle(5, id, mockObjectMetadata(78));
 
     String prefix = id + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().rollback());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) ->
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle1, ObjectOperationType.UPDATE, OperationLogEntryState.COMMITTED);
   }
 
@@ -181,18 +193,20 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle2 = mockObjectHandle(2, id, mockObjectMetadata(78));
 
     String prefix = id + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.PENDING);
 
     assertTrue(logEntryHandle.isPresent());
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().rollback());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle1, ObjectOperationType.CREATE, OperationLogEntryState.COMMITTED);
   }
 
@@ -202,7 +216,7 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle1 = mockObjectHandle(1, id, mockObjectMetadata(34));
     VersionedObjectHandle objectHandle2 = mockObjectHandle(2, id, mockObjectMetadata(78));
 
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
@@ -217,15 +231,16 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle2 = mockObjectHandle(4, id, mockObjectMetadata(78));
 
     String prefix = id + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.PENDING);
 
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     assertFalse(logEntryHandle.get().rollback());
   }
 
@@ -236,15 +251,16 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle2 = mockObjectHandle(4, id, mockObjectMetadata(78));
 
     String prefix = id + ".info";
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logUpdateOperation(objectHandle1, objectHandle2);
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle2, ObjectOperationType.UPDATE, OperationLogEntryState.PENDING);
 
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     assertFalse(logEntryHandle.get().commit());
   }
 
@@ -253,20 +269,23 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle = mockObjectHandle(4);
     String prefix = objectHandle.id() + ".info";
 
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
 
     assertTrue(logEntryHandle.isPresent());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.PENDING);
 
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().commit());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.COMMITTED);
-    verify(mockAmazonS3).deleteObject(eq("bucket"), eq(prefix));
+    verify(mockS3Client).deleteObject(argThat((DeleteObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)));
   }
 
   @Test
@@ -274,18 +293,20 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle = mockObjectHandle(4);
     String prefix = objectHandle.id() + ".info";
 
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
 
     assertTrue(logEntryHandle.isPresent());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.PENDING);
 
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().rollback());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.UPDATE, OperationLogEntryState.COMMITTED);
   }
 
@@ -294,25 +315,27 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
 
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
 
     assertTrue(logEntryHandle.isPresent());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.PENDING);
 
-    clearInvocations(mockAmazonS3);
+    clearInvocations(mockS3Client);
     assertTrue(logEntryHandle.get().rollback());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.CREATE, OperationLogEntryState.COMMITTED);
   }
 
   @Test
   public void testLogDeleteObjectOnFailure() {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
@@ -325,17 +348,18 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
 
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
 
     assertTrue(logEntryHandle.isPresent());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.PENDING);
 
-    clearInvocations(mockAmazonS3);
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), any(), any(), any());
+    clearInvocations(mockS3Client);
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     assertFalse(logEntryHandle.get().rollback());
   }
 
@@ -344,17 +368,18 @@ public class S3MetadataOperationLogTest {
     VersionedObjectHandle objectHandle = mockObjectHandle(1);
     String prefix = objectHandle.id() + ".info";
 
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     Optional<MetadataOperationLog.LogEntryHandle> logEntryHandle =
         s3MetadataOperationLog.logDeleteOperation(objectHandle);
 
     assertTrue(logEntryHandle.isPresent());
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
     assertMetadataIsWrittenToS3(objectHandle, ObjectOperationType.DELETE, OperationLogEntryState.PENDING);
 
-    clearInvocations(mockAmazonS3);
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), any(), any(), any());
+    clearInvocations(mockS3Client);
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     assertFalse(logEntryHandle.get().commit());
   }
 
@@ -363,12 +388,13 @@ public class S3MetadataOperationLogTest {
     UUID id = UUID.randomUUID();
     String prefix = id + ".info";
     ObjectMetadata objectMetadata = mockObjectMetadata(10);
-    doReturn(new PutObjectResult()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doReturn(PutObjectResponse.builder().build()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     assertTrue(s3MetadataOperationLog.amendObject(objectMetadata, id, 2, ObjectOperationType.UPDATE));
 
-    verify(mockAmazonS3).putObject(eq("bucket"), eq(prefix), inputStreamArgumentCaptor.capture(), any());
-    LogicalFileMetadataV2 serializedMeta = deserializeMetadata(inputStreamArgumentCaptor.getValue());
+    verify(mockS3Client).putObject(argThat((PutObjectRequest req) -> 
+        req.bucket().equals("bucket") && req.key().equals(prefix)), requestBodyArgumentCaptor.capture());
+    LogicalFileMetadataV2 serializedMeta = deserializeMetadata(requestBodyArgumentCaptor.getValue());
     assertSerializedMetaMatchesObjectMeta(objectMetadata, serializedMeta);
     assertEquals(2, serializedMeta.getVersion());
     assertEquals(id.toString(), serializedMeta.getId());
@@ -381,22 +407,29 @@ public class S3MetadataOperationLogTest {
     UUID id = UUID.randomUUID();
     String prefix = id + ".info";
     ObjectMetadata objectMetadata = mockObjectMetadata(10);
-    doThrow(new RuntimeException()).when(mockAmazonS3).putObject(anyString(), anyString(), any(), any());
+    doThrow(new RuntimeException()).when(mockS3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
 
     assertFalse(s3MetadataOperationLog.amendObject(objectMetadata, id, 2, ObjectOperationType.UPDATE));
+  }
+
+  @Test
+  public void testResourcesAreCleanedUp() {
+    s3MetadataOperationLog.close();
+
+    verify(mockS3Client, times(1)).close();
   }
 
   private void assertMetadataIsWrittenToS3(VersionedObjectHandle handle,
                                            ObjectOperationType operationType,
                                            OperationLogEntryState logState) throws IOException {
-    LogicalFileMetadataV2 metadata = deserializeMetadata(inputStreamArgumentCaptor.getValue());
+    LogicalFileMetadataV2 metadata = deserializeMetadata(requestBodyArgumentCaptor.getValue());
     assertSerializedMetaMatchesHandle(handle, metadata);
     assertEquals(logState, metadata.getState());
     assertEquals(operationType, metadata.getType());
   }
 
-  private LogicalFileMetadataV2 deserializeMetadata(InputStream inputStream) throws IOException {
-    return ObjectMetadataSerialization.deserializeFromV2(inputStream);
+  private LogicalFileMetadataV2 deserializeMetadata(RequestBody requestBody) throws IOException {
+    return ObjectMetadataSerialization.deserializeFromV2(requestBody.contentStreamProvider().newStream());
   }
 
   private void assertSerializedMetaMatchesHandle(VersionedObjectHandle handle,

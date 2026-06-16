@@ -12,8 +12,11 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.utils;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import org.junit.rules.ExternalResource;
 
@@ -22,25 +25,28 @@ import java.util.concurrent.atomic.AtomicLong;
 public class S3Bucket extends ExternalResource {
 
   private final String bucket;
-  private final AmazonS3 amazonS3;
+  private final S3Client s3Client;
   private static final AtomicLong counter = new AtomicLong();
 
-  public S3Bucket(AmazonS3 amazonS3) {
+  public S3Bucket(S3Client s3Client) {
     this.bucket = "bucket" + counter.incrementAndGet();
-    this.amazonS3 = amazonS3;
+    this.s3Client = s3Client;
   }
 
   @Override
-  protected void before() throws Throwable {
-    amazonS3.createBucket(bucket);
+  protected void before() {
+    s3Client.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
   }
 
   @Override
   protected void after() {
-    for (S3ObjectSummary objectSummary : ITUtils.listFully(amazonS3, bucket)) {
-      amazonS3.deleteObject(new DeleteObjectRequest(bucket, objectSummary.getKey()));
+    for (S3Object s3Object : ITUtils.listFully(s3Client, bucket)) {
+      s3Client.deleteObject(DeleteObjectRequest.builder()
+          .bucket(bucket)
+          .key(s3Object.key())
+          .build());
     }
-    amazonS3.deleteBucket(bucket);
+    s3Client.deleteBucket(DeleteBucketRequest.builder().bucket(bucket).build());
   }
 
   public String getBucket() {

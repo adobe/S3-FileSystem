@@ -14,44 +14,45 @@ package com.adobe.s3fs.operationlog;
 
 import com.adobe.s3fs.common.runtime.FileSystemRuntime;
 import com.adobe.s3fs.metastore.api.MetadataOperationLogExtended;
-import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.metastore.api.ObjectOperationType;
+import com.adobe.s3fs.metastore.api.OperationLogEntryState;
 import com.adobe.s3fs.metastore.api.VersionedObjectHandle;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class S3MetadataOperationLog implements MetadataOperationLogExtended {
 
-  private final AmazonS3 amazonS3;
+  private final S3Client s3Client;
   private final FileSystemRuntime runtime;
   private final String bucket;
 
   public static final String INFO_SUFFIX = ".info";
   private static final Logger LOG = LoggerFactory.getLogger(S3MetadataOperationLog.class);
 
-  public S3MetadataOperationLog(AmazonS3 amazonS3, String bucket, FileSystemRuntime runtime) {
-    this.amazonS3 = Preconditions.checkNotNull(amazonS3);
+  public S3MetadataOperationLog(S3Client s3Client, String bucket, FileSystemRuntime runtime) {
+    this.s3Client = Preconditions.checkNotNull(s3Client);
     this.runtime = Preconditions.checkNotNull(runtime);
     this.bucket = Preconditions.checkNotNull(bucket);
   }
 
   private void putS3Object(String bucket, String key, ZeroCopyByteArrayOutputStream outputStream) {
-    ObjectMetadata s3ObjectMetadata = new ObjectMetadata();
-    s3ObjectMetadata.setContentLength(outputStream.size());
-    amazonS3.putObject(bucket,
-        key,
-        new ByteArrayInputStream(outputStream.zeroCopyBuffer()),
-        s3ObjectMetadata);
+    s3Client.putObject(
+        PutObjectRequest.builder()
+            .bucket(bucket)
+            .key(key)
+            .contentLength((long) outputStream.size())
+            .build(),
+        RequestBody.fromBytes(outputStream.zeroCopyBuffer()));
   }
 
   private boolean writeCommittedOpLogToStorage(
@@ -68,7 +69,7 @@ public class S3MetadataOperationLog implements MetadataOperationLogExtended {
       putS3Object(bucket, key, outputStream);
       return true;
     } catch (Exception e) {
-      LOG.error("Error persisting " + bucket + "/" + key, e);
+      LOG.error("Error persisting {}/{}", bucket, key, e);
       return false;
     }
   }
@@ -84,14 +85,16 @@ public class S3MetadataOperationLog implements MetadataOperationLogExtended {
       putS3Object(bucket, key, outputStream);
       return true;
     } catch (Exception e) {
-      LOG.error("Error persisting " + bucket + "/" + key, e);
+      LOG.error("Error persisting {}/{}", bucket, key, e);
       return false;
     }
   }
 
   @Override
-  public void close() throws IOException {
-    amazonS3.shutdown();
+  public void close() {
+    try (S3Client s3ClientCopy = s3Client) {
+      // let try-with-resources close it
+    }
   }
 
   @Override
@@ -204,7 +207,7 @@ public class S3MetadataOperationLog implements MetadataOperationLogExtended {
     Preconditions.checkNotNull(objId); // NOSONAR
     Preconditions.checkNotNull(opType); // NOSONAR
 
-    String prefix = String.format("%s%s", objId.toString(), INFO_SUFFIX);
+    String prefix = String.format("%s%s", objId, INFO_SUFFIX);
 
     return writeCommittedOpLogToStorage(objMetadata, bucket, prefix, objId, version, opType);
   }
@@ -215,7 +218,10 @@ public class S3MetadataOperationLog implements MetadataOperationLogExtended {
 
   private boolean deleteFromS3(String bucket, String key) {
     try {
-      amazonS3.deleteObject(bucket, key);
+      s3Client.deleteObject(DeleteObjectRequest.builder()
+          .bucket(bucket)
+          .key(key)
+          .build());
       return true;
     } catch (Exception e) {
       LOG.error("Error deleting. Metadata is still stored at {}", key);

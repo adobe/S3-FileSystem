@@ -12,21 +12,27 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.utils.aws;
 
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.core.retry.backoff.BackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.FullJitterBackoffStrategy;
+
+import java.time.Duration;
 
 public final class SimpleRetryPolicies {
 
   private SimpleRetryPolicies() {}
 
   public static RetryPolicy fullJitter(int baseDelay, int maxDelay, int maxRetries) {
-    RetryPolicy.BackoffStrategy backoffStrategy =
+    BackoffStrategy backoffStrategy =
         new LoggingBackoffStrategy(
-            new PredefinedBackoffStrategies.FullJitterBackoffStrategy(baseDelay, maxDelay));
-    RetryPolicy retryPolicy =
-        new RetryPolicy(
-            PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION, backoffStrategy, maxRetries, true);
+            FullJitterBackoffStrategy.builder()
+                .baseDelay(Duration.ofMillis(baseDelay))
+                .maxBackoffTime(Duration.ofMillis(maxDelay))
+                .build());
+    RetryPolicy retryPolicy = RetryPolicy.builder()
+        .backoffStrategy(backoffStrategy)
+        .numRetries(maxRetries)
+        .build();
     return retryPolicy;
   }
 }

@@ -14,11 +14,8 @@ package com.adobe.s3fs.shell.commands.tools;
 
 import com.adobe.s3fs.filesystemcheck.s3.RawS3ScanInputFormat;
 import com.adobe.s3fs.utils.aws.SimpleRetryPolicies;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import com.adobe.s3fs.utils.exceptions.UncheckedException;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.github.rvesse.airline.annotations.Command;
 import com.github.rvesse.airline.annotations.Option;
 import com.github.rvesse.airline.annotations.restrictions.Required;
@@ -29,6 +26,10 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
 import java.io.IOException;
 
@@ -83,9 +84,9 @@ public class PurgeBucket implements Runnable {
     configuration.setBoolean("mapreduce.map.speculative", false);
   }
 
-  private static class PurgeBucketMapper extends Mapper<Void, S3ObjectSummary, NullWritable, NullWritable> {
+  private static class PurgeBucketMapper extends Mapper<Void, S3ObjectLocation, NullWritable, NullWritable> {
 
-    private AmazonS3 amazonS3;
+    private S3Client s3Client;
 
     private static final Logger LOG = LoggerFactory.getLogger(PurgeBucketMapper.class);
 
@@ -98,17 +99,22 @@ public class PurgeBucket implements Runnable {
       int maxRetries = context.getConfiguration().getInt("fs.s3k.purge.bucket.s3.max.retries", 50);
       int maxConnections = context.getConfiguration().getInt("fs.s3k.purge.bucket.s3.max.connections", 10);
 
-      this.amazonS3 = AmazonS3ClientBuilder.standard()
-          .withClientConfiguration(new ClientConfiguration()
-              .withRetryPolicy(SimpleRetryPolicies.fullJitter(baseDelay,  maxDelay, maxRetries))
-              .withMaxConnections(maxConnections))
+      RetryPolicy retryPolicy = SimpleRetryPolicies.fullJitter(baseDelay, maxDelay, maxRetries);
+
+      this.s3Client = S3Client.builder()
+          .httpClientBuilder(ApacheHttpClient.builder().maxConnections(maxConnections))
+          .overrideConfiguration(config -> config.retryPolicy(retryPolicy))
           .build();
+
     }
 
     @Override
-    protected void map(Void key, S3ObjectSummary value, Context context) throws IOException, InterruptedException {
+    protected void map(Void key, S3ObjectLocation value, Context context) {
       try {
-        amazonS3.deleteObject(value.getBucketName(), value.getKey());
+        s3Client.deleteObject(DeleteObjectRequest.builder()
+            .bucket(value.bucket())
+            .key(value.s3Object().key())
+            .build());
         context.getCounter(PurgeCounters.GROUP, PurgeCounters.SUCCESSFUL).increment(1L);
       } catch (Exception e) {
         LOG.error("Error deleting {}", value);
@@ -118,8 +124,11 @@ public class PurgeBucket implements Runnable {
 
     @Override
     protected void cleanup(Context context) throws IOException, InterruptedException {
-      amazonS3.shutdown();
-      super.cleanup(context);
+      try (S3Client s3ClientCopy = s3Client) {
+        // let try-with-resources close it
+      } finally {
+        super.cleanup(context);
+      }
     }
   }
 }

@@ -14,12 +14,11 @@ package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 /**
  * Defines the contract for basic CRUD operations over a DynamoDB table.
  */
-public interface DynamoDBStorage {
+public interface DynamoDBStorage extends AutoCloseable {
 
   /**
    * Defines a transaction against the DynamoDB storage. You can add multiple items to be deleted or created as an atomic operation.
@@ -85,7 +84,7 @@ public interface DynamoDBStorage {
   /**
    * @param hashKey
    * @param sortKey
-   * @return Return the DynamoDB item associated to the hash and sort key. If there si no such item {@link Optional#empty()} is returned.
+   * @return Return the DynamoDB item associated to the hash and sort key. If there is no such item {@link Optional#empty()} is returned.
    */
   Optional<DynamoDBItem> getItem(String hashKey, String sortKey);
 
@@ -114,4 +113,10 @@ public interface DynamoDBStorage {
    * For example in partitionIndex is 1 and totalPartitions is 4 the method will return a quarter of all DynamoDB items in the table.
    */
   Iterable<DynamoDBItem> scan(int partitionIndex, int totalPartitions);
+
+  /**
+   * Closes the underlying resources.
+   */
+  @Override
+  void close();
 }

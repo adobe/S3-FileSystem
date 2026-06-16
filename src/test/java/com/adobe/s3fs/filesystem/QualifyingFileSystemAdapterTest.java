@@ -200,7 +200,7 @@ public class QualifyingFileSystemAdapterTest {
 
     assertFalse(qualifyingFileSystemAdapter.delete(path, true));
 
-    verifyZeroInteractions(mockQualifyingFsMetrics);
+    verifyNoInteractions(mockQualifyingFsMetrics);
   }
 
   @Test
@@ -212,7 +212,7 @@ public class QualifyingFileSystemAdapterTest {
 
     assertFalse(qualifyingFileSystemAdapter.delete(relative, true));
 
-    verifyZeroInteractions(mockQualifyingFsMetrics);
+    verifyNoInteractions(mockQualifyingFsMetrics);
   }
 
   @Test

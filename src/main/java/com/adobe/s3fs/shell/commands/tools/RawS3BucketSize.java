@@ -15,12 +15,11 @@ package com.adobe.s3fs.shell.commands.tools;
 import com.adobe.s3fs.filesystemcheck.s3.CartesianS3PrefixPartitioner;
 import com.adobe.s3fs.filesystemcheck.s3.S3Partitioner;
 import com.adobe.s3fs.filesystemcheck.s3.SingleDigitS3PrefixPartitioner;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.github.rvesse.airline.annotations.Command;
 import com.github.rvesse.airline.annotations.Option;
 import com.github.rvesse.airline.annotations.restrictions.Required;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import static com.adobe.s3fs.shell.CommandGroups.TOOLS;
 
@@ -35,7 +34,7 @@ public class RawS3BucketSize implements Runnable {
   private String bucket;
 
   @Option(name = "--keyCountOnly")
-  private boolean keyCountOny = false;
+  private boolean keyCountOnly = false;
 
   @Option(name = "--sizeOnly")
   private boolean sizeOnly = false;
@@ -43,12 +42,12 @@ public class RawS3BucketSize implements Runnable {
   @Override
   public void run() {
     S3Partitioner partitioner = new CartesianS3PrefixPartitioner(new SingleDigitS3PrefixPartitioner());
-    AmazonS3 amazonS3 = AmazonS3ClientBuilder.standard()
-        .withClientConfiguration(new ClientConfiguration().withMaxConnections(partitioner.size()))
+    S3Client s3Client = S3Client.builder()
+        .httpClientBuilder(ApacheHttpClient.builder().maxConnections(partitioner.size()))
         .build();
-    S3ContentComputation.Content content = new S3ContentComputation(amazonS3, partitioner).compute(bucket);
+    S3ContentComputation.Content content = new S3ContentComputation(s3Client, partitioner).compute(bucket);
 
-    if (keyCountOny) {
+    if (keyCountOnly) {
       System.out.println(content.getObjectCount());
     } else if (sizeOnly) {
       System.out.println(content.getSize());

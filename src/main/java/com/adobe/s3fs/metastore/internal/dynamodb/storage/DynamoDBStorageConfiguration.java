@@ -13,18 +13,21 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
 import com.adobe.s3fs.common.configuration.FileSystemConfiguration;
-
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.retry.PredefinedBackoffStrategies;
-import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.core.retry.backoff.BackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
+import software.amazon.awssdk.core.retry.backoff.FullJitterBackoffStrategy;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.regions.Region;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.Optional;
 
 public class DynamoDBStorageConfiguration {
@@ -51,49 +54,80 @@ public class DynamoDBStorageConfiguration {
     this.configuration = Preconditions.checkNotNull(configuration);
   }
 
-  public ClientConfiguration getClientConfigurationForTable() {
+  public ApacheHttpClient.Builder getApacheHttpClient() {
+    int maxConnections = configuration.contextAware().getInt(MAX_HTTP_CONNECTIONS, DEFAULT_MAX_HTTP_CONNECTIONS);
+    return ApacheHttpClient.builder().maxConnections(maxConnections);
+  }
+
+  public ClientOverrideConfiguration getClientOverrideConfiguration() {
+    RetryPolicy retryPolicy = getRetryPolicy();
+    return ClientOverrideConfiguration.builder()
+        .retryPolicy(retryPolicy)
+        .build();
+  }
+
+  public RetryPolicy getRetryPolicy() {
     int baseExponentialDelay = configuration.contextAware().getInt(BASE_EXPONENTIAL_DELAY_PROP, DEFAULT_BASE_EXPONENTIAL_DELAY);
     int maxExponentialDelay = configuration.contextAware().getInt(MAX_EXPONENTIAL_DELAY, DEFAULT_MAX_EXPONENTIAL_DELAY);
-
     boolean useFullJitter = configuration.contextAware().getBoolean(USE_FULL_JITTER_BACKOFF, DEFAULT_USE_FULL_JITTER);
 
-    RetryPolicy.BackoffStrategy backoffStrategy;
-
+    BackoffStrategy backoffStrategy;
     if (useFullJitter) {
-      backoffStrategy = new PredefinedBackoffStrategies.FullJitterBackoffStrategy(baseExponentialDelay, maxExponentialDelay);
+      backoffStrategy = FullJitterBackoffStrategy.builder()
+          .baseDelay(Duration.ofMillis(baseExponentialDelay))
+          .maxBackoffTime(Duration.ofMillis(maxExponentialDelay))
+          .build();
     } else {
-      backoffStrategy = new PredefinedBackoffStrategies.EqualJitterBackoffStrategy(baseExponentialDelay, maxExponentialDelay);
+      backoffStrategy = EqualJitterBackoffStrategy.builder()
+          .baseDelay(Duration.ofMillis(baseExponentialDelay))
+          .maxBackoffTime(Duration.ofMillis(maxExponentialDelay))
+          .build();
     }
 
     int maxErrorRetries = configuration.contextAware().getInt(MAX_RETRIES, DEFAULT_MAX_RETRIES);
 
-    RetryPolicy retryPolicy = new RetryPolicy(PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION,
-                                              backoffStrategy,
-                                              maxErrorRetries,
-                                              true);
-
-    return new ClientConfiguration()
-        .withRetryPolicy(retryPolicy)
-        .withMaxConnections(configuration.contextAware().getInt(MAX_HTTP_CONNECTIONS, DEFAULT_MAX_HTTP_CONNECTIONS));
+    return RetryPolicy.builder()
+        .backoffStrategy(backoffStrategy)
+        .throttlingBackoffStrategy(backoffStrategy)
+        .numRetries(maxErrorRetries)
+        .build();
   }
 
-  public Optional<AwsClientBuilder.EndpointConfiguration> getEndPointConfiguration() {
+  public Optional<EndpointConfiguration> getEndPointConfiguration() {
     String endpoint = configuration.getString(AWS_ENDPOINT, "");
     String signingRegion = configuration.getString(AWS_SIGNING_REGION, "");
 
     if (!Strings.isNullOrEmpty(endpoint) && !Strings.isNullOrEmpty(signingRegion)) {
-      return Optional.of(new AwsClientBuilder.EndpointConfiguration(endpoint, signingRegion));
+        return Optional.of(new EndpointConfiguration(URI.create(endpoint), Region.of(signingRegion)));
     }
 
     return Optional.empty();
   }
 
-  public Optional<AWSCredentialsProvider> getCredentialsProvider() {
+  public static class EndpointConfiguration {
+    private final URI serviceEndpoint;
+    private final Region signingRegion;
+
+    EndpointConfiguration(URI serviceEndpoint, Region signingRegion) {
+      this.serviceEndpoint = serviceEndpoint;
+      this.signingRegion = signingRegion;
+    }
+
+    public URI getServiceEndpoint() {
+      return serviceEndpoint;
+    }
+
+    public Region getSigningRegion() {
+      return signingRegion;
+    }
+  }
+
+  public Optional<AwsCredentialsProvider> getCredentialsProvider() {
     String access = configuration.getString(AWS_ACCESS_KEY_ID, "");
     String secret = configuration.getString(AWS_SECRET_ACCESS_KEY, "");
 
     if (!Strings.isNullOrEmpty(access) && !Strings.isNullOrEmpty(secret)) {
-      return Optional.of(new AWSStaticCredentialsProvider(new BasicAWSCredentials(access, secret)));
+      return Optional.of(StaticCredentialsProvider.create(AwsBasicCredentials.create(access, secret)));
     }
 
     return Optional.empty();

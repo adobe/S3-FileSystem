@@ -90,13 +90,15 @@ public class MetadataStoreScanInputFormat extends InputFormat<Void, VersionedObj
       }
 
       @Override
-      public float getProgress() throws IOException, InterruptedException { // NOSONAR
+      public float getProgress() {
         return 0;
       }
 
       @Override
-      public void close() throws IOException { // NOSONAR
-        metadataStoreExtended.close();
+      public void close() {
+        try (MetadataStoreExtended metadataStoreExtendedCopy = metadataStoreExtended) {
+          // let try-with-resources close it
+        }
       }
     };
   }

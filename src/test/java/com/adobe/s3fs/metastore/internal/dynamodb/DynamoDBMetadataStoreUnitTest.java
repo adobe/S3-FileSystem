@@ -12,17 +12,11 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.internal.dynamodb;
 
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
-
 import com.adobe.s3fs.metastore.api.ObjectHandle;
 import com.adobe.s3fs.metastore.api.ObjectMetadata;
 import com.adobe.s3fs.metastore.internal.dynamodb.operations.MetadataOperations;
 import com.adobe.s3fs.metastore.internal.dynamodb.operations.MetadataTreeOperations;
 import com.adobe.s3fs.metastore.internal.dynamodb.versioning.VersionedObject;
-
 import org.apache.hadoop.fs.Path;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,6 +26,11 @@ import org.mockito.MockitoAnnotations;
 
 import java.util.Optional;
 import java.util.UUID;
+
+import static org.junit.Assert.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
 public class DynamoDBMetadataStoreUnitTest {
 
@@ -153,7 +152,7 @@ public class DynamoDBMetadataStoreUnitTest {
     doReturn(true).when(mockMetadataOperations).renameFile(handle, destinationKey);
 
     assertTrue(metadataStore.renameObject(handle, destinationKey));
-    verifyZeroInteractions(mockMetadataTreeOperations);
+    verifyNoInteractions(mockMetadataTreeOperations);
   }
 
   @Test
@@ -176,7 +175,7 @@ public class DynamoDBMetadataStoreUnitTest {
 
     assertFalse(metadataStore.renameObject(handle, destinationKey));
 
-    verifyZeroInteractions(mockMetadataTreeOperations);
+    verifyNoInteractions(mockMetadataTreeOperations);
   }
 
   @Test
@@ -204,7 +203,7 @@ public class DynamoDBMetadataStoreUnitTest {
       // nothing to do
     }
 
-    verifyZeroInteractions(mockMetadataTreeOperations);
+    verifyNoInteractions(mockMetadataTreeOperations);
   }
 
   @Test
@@ -226,7 +225,7 @@ public class DynamoDBMetadataStoreUnitTest {
 
     assertTrue(metadataStore.renameObject(handle, destinationKey));
 
-    verifyZeroInteractions(mockMetadataOperations);
+    verifyNoInteractions(mockMetadataOperations);
   }
 
   @Test
@@ -253,7 +252,7 @@ public class DynamoDBMetadataStoreUnitTest {
       // ignored
     }
 
-    verifyZeroInteractions(mockMetadataOperations);
+    verifyNoInteractions(mockMetadataOperations);
   }
 
   @Test
@@ -274,7 +273,7 @@ public class DynamoDBMetadataStoreUnitTest {
 
     assertTrue(metadataStore.deleteObject(versionedObject, o -> true));
 
-    verifyZeroInteractions(mockMetadataOperations);
+    verifyNoInteractions(mockMetadataOperations);
   }
 
   @Test
@@ -320,7 +319,7 @@ public class DynamoDBMetadataStoreUnitTest {
 
     assertTrue(metadataStore.deleteObject(handle, o -> true));
 
-    verifyZeroInteractions(mockMetadataTreeOperations);
+    verifyNoInteractions(mockMetadataTreeOperations);
   }
 
   @Test
@@ -375,5 +374,12 @@ public class DynamoDBMetadataStoreUnitTest {
     doReturn(mockResponse).when(mockMetadataOperations).scan(key, 1,3);
 
     assertEquals(mockResponse, metadataStore.scanPartition(key, 1, 3));
+  }
+
+  @Test
+  public void testResourcesAreCleanedUp() {
+    metadataStore.close();
+
+    verify(mockMetadataOperations, times(1)).close();
   }
 }

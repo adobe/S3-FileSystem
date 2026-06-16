@@ -14,7 +14,6 @@ package com.adobe.s3fs.metastore.api;
 
 import org.apache.hadoop.fs.Path;
 
-import java.io.Closeable;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -23,7 +22,7 @@ import java.util.function.Function;
  * The {@link MetadataStore} has no durability guarantees.
  * It should rely on an implementation of {@link MetadataOperationLog} to store data for recovery purposes.
  */
-public interface MetadataStore extends Closeable {
+public interface MetadataStore extends AutoCloseable {
 
   /**
    * Stores the given {@link ObjectMetadata}. If it already exists, it will be overwritten.
@@ -37,7 +36,7 @@ public interface MetadataStore extends Closeable {
   ObjectHandle updateObject(ObjectHandle currentHandle, ObjectMetadata newMetadata);
 
   /**
-   * Return the {@link ObjectMetadata} associated with the given key..
+   * Return the {@link ObjectMetadata} associated with the given key.
    * @param key
    * @return Returns {@link Optional#empty()} if no object is associated, otherwise the associated object.
    */
@@ -72,4 +71,10 @@ public interface MetadataStore extends Closeable {
    * or the objectMetadata itself if {@link ObjectMetadata#isDirectory()} returns true.
    */
   Iterable<? extends ObjectHandle> listChildObjects(ObjectHandle object);
+
+  /**
+   * Closes the underlying resources.
+   */
+  @Override
+  void close();
 }

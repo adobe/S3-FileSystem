@@ -12,27 +12,31 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.filesystemcheck.cmdloader;
 
-import com.amazonaws.services.s3.AmazonS3;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.tuple.ImmutablePair;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
 public class S3DeleteCommand implements FsckCommand {
 
-  private final ImmutablePair<AmazonS3, String[]> clientWithParams;
+  private final ImmutablePair<S3Client, String[]> clientWithParams;
 
-  private S3DeleteCommand(AmazonS3 s3Client, String[] parameters) {
+  private S3DeleteCommand(S3Client s3Client, String[] parameters) {
     Preconditions.checkState(s3Client != null);
     Preconditions.checkState(parameters != null && parameters.length == 2);
     this.clientWithParams = new ImmutablePair<>(s3Client, parameters);
   }
 
-  public static S3DeleteCommand newInstance(AmazonS3 s3Client, String[] parameters) {
+  public static S3DeleteCommand newInstance(S3Client s3Client, String[] parameters) {
     return new S3DeleteCommand(s3Client, parameters);
   }
 
   @Override
   public void execute() {
-    clientWithParams.left.deleteObject(clientWithParams.right[0], clientWithParams.right[1]); // NOSONAR
+    clientWithParams.left.deleteObject(DeleteObjectRequest.builder()
+        .bucket(clientWithParams.right[0])
+        .key(clientWithParams.right[1])
+        .build());
   }
 
   @Override

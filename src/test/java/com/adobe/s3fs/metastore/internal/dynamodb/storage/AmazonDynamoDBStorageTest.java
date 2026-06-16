@@ -13,9 +13,6 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.metastore.internal.dynamodb.storage;
 
 import com.adobe.s3fs.common.runtime.FileSystemRuntime;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.document.ItemUtils;
-import com.amazonaws.services.dynamodbv2.model.*;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import junit.framework.AssertionFailedError;
@@ -24,21 +21,22 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 public class AmazonDynamoDBStorageTest {
 
   private AmazonDynamoDBStorage amazonDynamoDBStorage;
 
   @Mock
-  private AmazonDynamoDB mockDynamoDBClient;
+  private DynamoDbClient mockDynamoDBClient;
 
   @Mock
   private FileSystemRuntime mockRuntime;
@@ -79,13 +77,13 @@ public class AmazonDynamoDBStorageTest {
         .id(UUID.randomUUID())
         .version(1)
         .build();
-    doAnswer(it -> null).when(mockDynamoDBClient).putItem(putItemRequestCaptor.capture());
+    doAnswer(it -> PutItemResponse.builder().build()).when(mockDynamoDBClient).putItem(putItemRequestCaptor.capture());
 
     amazonDynamoDBStorage.putItem(item);
 
     PutItemRequest capture = putItemRequestCaptor.getValue();
-    assertEquals("table", capture.getTableName());
-    assertDynamoItemSameAsItem(item, capture.getItem());
+    assertEquals("table", capture.tableName());
+    assertDynamoItemSameAsItem(item, capture.item());
   }
 
   @Test
@@ -101,13 +99,13 @@ public class AmazonDynamoDBStorageTest {
         .id(UUID.randomUUID())
         .version(1)
         .build();
-    doAnswer(it -> null).when(mockDynamoDBClient).putItem(putItemRequestCaptor.capture());
+    doAnswer(it -> PutItemResponse.builder().build()).when(mockDynamoDBClient).putItem(putItemRequestCaptor.capture());
 
     amazonDynamoDBStorage.putItem(item);
 
     PutItemRequest capture = putItemRequestCaptor.getValue();
-    assertEquals("table", capture.getTableName());
-    assertDynamoItemSameAsItem(item, capture.getItem());
+    assertEquals("table", capture.tableName());
+    assertDynamoItemSameAsItem(item, capture.item());
   }
 
   @Test
@@ -124,7 +122,7 @@ public class AmazonDynamoDBStorageTest {
     dynamoItem.put(AmazonDynamoDBStorage.VERSION, ItemUtils.toAttributeValue(1));
     doAnswer(it -> {
       assertGetItemSpec((GetItemRequest) it.getArguments()[0], "hash", "sort");
-      return new GetItemResult().withItem(dynamoItem);
+      return GetItemResponse.builder().item(dynamoItem).build();
     }).when(mockDynamoDBClient).getItem(any(GetItemRequest.class));
 
     DynamoDBItem returnedItem = amazonDynamoDBStorage.getItem("hash", "sort")
@@ -146,7 +144,7 @@ public class AmazonDynamoDBStorageTest {
     dynamoItem.put(AmazonDynamoDBStorage.VERSION, ItemUtils.toAttributeValue(1));
     doAnswer(it -> {
       assertGetItemSpec((GetItemRequest) it.getArguments()[0], "hash", "sort");
-      return new GetItemResult().withItem(dynamoItem);
+      return GetItemResponse.builder().item(dynamoItem).build();
     }).when(mockDynamoDBClient).getItem(any(GetItemRequest.class));
 
     DynamoDBItem returnedItem = amazonDynamoDBStorage.getItem("hash", "sort")
@@ -165,7 +163,7 @@ public class AmazonDynamoDBStorageTest {
     item.put(AmazonDynamoDBStorage.ID, ItemUtils.toAttributeValue(UUID.randomUUID().toString()));
     doAnswer(it -> {
       assertGetItemSpec((GetItemRequest) it.getArguments()[0], "hash", "sort");
-      return new GetItemResult().withItem(item);
+      return GetItemResponse.builder().item(item).build();
     }).when(mockDynamoDBClient).getItem(any(GetItemRequest.class));
 
     DynamoDBItem returnedItem = amazonDynamoDBStorage.getItem("hash", "sort")
@@ -178,7 +176,7 @@ public class AmazonDynamoDBStorageTest {
   public void testGetItemReturnsEmptyIfNoItemIsStored() {
     doAnswer(it -> {
       assertGetItemSpec((GetItemRequest) it.getArguments()[0], "hash", "sort");
-      return null;
+      return GetItemResponse.builder().build();
     }).when(mockDynamoDBClient).getItem(any(GetItemRequest.class));
     assertFalse(amazonDynamoDBStorage.getItem("hash", "sort").isPresent());
   }
@@ -187,8 +185,8 @@ public class AmazonDynamoDBStorageTest {
   public void testDeleteItem() {
     doAnswer(it -> {
       DeleteItemRequest deleteSpec = (DeleteItemRequest) it.getArguments()[0];
-      assertKeyComponents(deleteSpec.getKey(), "hash", "sort");
-      return null;
+      assertKeyComponents(deleteSpec.key(), "hash", "sort");
+      return DeleteItemResponse.builder().build();
     }).when(mockDynamoDBClient).deleteItem(any(DeleteItemRequest.class));
 
     amazonDynamoDBStorage.deleteItem("hash", "sort");
@@ -319,7 +317,7 @@ public class AmazonDynamoDBStorageTest {
         .version(2)
         .id(UUID.randomUUID())
         .build();
-    doAnswer(inv -> null).when(mockDynamoDBClient).transactWriteItems(transactWriteItemsCaptor.capture());
+    doAnswer(inv -> TransactWriteItemsResponse.builder().build()).when(mockDynamoDBClient).transactWriteItems(transactWriteItemsCaptor.capture());
 
 
     DynamoDBStorage.Transaction transaction = amazonDynamoDBStorage.createTransaction();
@@ -328,8 +326,8 @@ public class AmazonDynamoDBStorageTest {
     assertTrue(transaction.commit());
 
     TransactWriteItemsRequest transactWriteItemsRequest = transactWriteItemsCaptor.getValue();
-    assertNotNull(transactWriteItemsRequest.getClientRequestToken());
-    assertEquals(2, transactWriteItemsRequest.getTransactItems().size());
+    assertNotNull(transactWriteItemsRequest.clientRequestToken());
+    assertEquals(2, transactWriteItemsRequest.transactItems().size());
     assertTransactionRequestPutsItem(transactWriteItemsRequest, item1, true);
     assertTransactionRequestDeletesItem(transactWriteItemsRequest, item2);
   }
@@ -358,7 +356,7 @@ public class AmazonDynamoDBStorageTest {
         .version(2)
         .id(UUID.randomUUID())
         .build();
-    doThrow(new TransactionConflictException("Conflict")).when(mockDynamoDBClient).transactWriteItems(transactWriteItemsCaptor.capture());
+    doThrow(TransactionConflictException.builder().message("Conflict").build()).when(mockDynamoDBClient).transactWriteItems(transactWriteItemsCaptor.capture());
 
 
     DynamoDBStorage.Transaction transaction = amazonDynamoDBStorage.createTransaction();
@@ -367,8 +365,8 @@ public class AmazonDynamoDBStorageTest {
     assertFalse(transaction.commit());
 
     TransactWriteItemsRequest transactWriteItemsRequest = transactWriteItemsCaptor.getValue();
-    assertNotNull(transactWriteItemsRequest.getClientRequestToken());
-    assertEquals(2, transactWriteItemsRequest.getTransactItems().size());
+    assertNotNull(transactWriteItemsRequest.clientRequestToken());
+    assertEquals(2, transactWriteItemsRequest.transactItems().size());
     assertTransactionRequestPutsItem(transactWriteItemsRequest, item1, true);
     assertTransactionRequestDeletesItem(transactWriteItemsRequest, item2);
   }
@@ -406,99 +404,108 @@ public class AmazonDynamoDBStorageTest {
     assertFalse(transaction.commit());
 
     TransactWriteItemsRequest transactWriteItemsRequest = transactWriteItemsCaptor.getValue();
-    assertNotNull(transactWriteItemsRequest.getClientRequestToken());
-    assertEquals(2, transactWriteItemsRequest.getTransactItems().size());
+    assertNotNull(transactWriteItemsRequest.clientRequestToken());
+    assertEquals(2, transactWriteItemsRequest.transactItems().size());
     assertTransactionRequestPutsItem(transactWriteItemsRequest, item1, true);
     assertTransactionRequestDeletesItem(transactWriteItemsRequest, item2);
   }
 
+  @Test
+  public void testResourcesAreCleanedUp() {
+    amazonDynamoDBStorage.close();
+
+    verify(mockDynamoDBClient, times(1)).close();
+  }
+
   private void assertTransactionRequestDeletesItem(TransactWriteItemsRequest transactWriteItemsRequest, DynamoDBItem item) {
-    List<Delete> deletes = transactWriteItemsRequest.getTransactItems().stream()
-        .map(TransactWriteItem::getDelete)
-        .filter(it -> it != null)
+    List<Delete> deletes = transactWriteItemsRequest.transactItems().stream()
+        .map(TransactWriteItem::delete)
+        .filter(Objects::nonNull)
         .collect(Collectors.toList());
 
     assertEquals(1, deletes.size());
-    assertEquals("table", deletes.get(0).getTableName());
-    assertKeyComponents(deletes.get(0).getKey(), item.getHashKey(), item.getSortKey());
+    assertEquals("table", deletes.get(0).tableName());
+    assertKeyComponents(deletes.get(0).key(), item.getHashKey(), item.getSortKey());
   }
 
   private void assertTransactionRequestPutsItem(TransactWriteItemsRequest transactWriteItemsRequest, DynamoDBItem item,
                                                 boolean checkEnforcesNotPresent) {
-    List<Put> puts = transactWriteItemsRequest.getTransactItems().stream()
-        .map(TransactWriteItem::getPut)
-        .filter(it -> it != null)
+    List<Put> puts = transactWriteItemsRequest.transactItems().stream()
+        .map(TransactWriteItem::put)
+        .filter(Objects::nonNull)
         .collect(Collectors.toList());
 
     assertEquals(1, puts.size());
-    assertEquals("table", puts.get(0).getTableName());
+    assertEquals("table", puts.get(0).tableName());
     if (checkEnforcesNotPresent) {
-      assertEquals(AmazonDynamoDBStorage.CREATE_ITEM_IF_NOT_EXISTS_ATT_NAMES, puts.get(0).getExpressionAttributeNames());
-      assertEquals("attribute_not_exists(#p) and attribute_not_exists(children)", puts.get(0).getConditionExpression());
+      assertEquals(AmazonDynamoDBStorage.CREATE_ITEM_IF_NOT_EXISTS_ATT_NAMES, puts.get(0).expressionAttributeNames());
+      assertEquals("attribute_not_exists(#p) and attribute_not_exists(children)", puts.get(0).conditionExpression());
     }
-    assertDynamoItemSameAsItem(item, puts.get(0).getItem());
+    assertDynamoItemSameAsItem(item, puts.get(0).item());
   }
 
-  private void mockAmazonQueryResponse(String hash, Map<String, AttributeValue>... mockItems) {
+  @SafeVarargs
+  private final void mockAmazonQueryResponse(String hash, Map<String, AttributeValue>... mockItems) {
     int pages = mockItems.length;
 
-    Map<Map<String, AttributeValue>, QueryResult> queryResultMap = new HashMap<>();
-    QueryResult firstResult = null;
+    Map<Map<String, AttributeValue>, QueryResponse> queryResultMap = new HashMap<>();
+    QueryResponse firstResult = null;
     for (int i = pages - 1; i >= 0; i--) {
-      QueryResult result = new QueryResult().withItems(mockItems[i]);
+      QueryResponse.Builder builder = QueryResponse.builder().items(mockItems[i]);
       if (i > 0) {
-        result = result.withLastEvaluatedKey(mockItems[i]);
+        QueryResponse result = builder.lastEvaluatedKey(mockItems[i]).build();
         queryResultMap.put(mockItems[i - 1], result);
       } else {
-        firstResult = result.withLastEvaluatedKey(mockItems[i]);
+        firstResult = builder.lastEvaluatedKey(mockItems[i]).build();
       }
     }
 
-    QueryResult finalFirstResult = firstResult;
+    QueryResponse finalFirstResult = firstResult;
     doAnswer(inv -> {
       QueryRequest request = inv.getArgument(0);
       assertQuerySpec(request, hash);
-      if (request.getExclusiveStartKey() == null) {
+      if (request.exclusiveStartKey() == null || request.exclusiveStartKey().isEmpty()) {
         return finalFirstResult;
       }
-      return queryResultMap.getOrDefault(request.getExclusiveStartKey(), new QueryResult());
+      return queryResultMap.getOrDefault(request.exclusiveStartKey(), QueryResponse.builder().build());
     }).when(mockDynamoDBClient).query(any(QueryRequest.class));
   }
 
-  private void mockAmazonScanResponse(int segmentIndex, int totalSegments, Map<String, AttributeValue>... mockItems) {
+  @SafeVarargs
+  private final void mockAmazonScanResponse(int segmentIndex, int totalSegments, Map<String, AttributeValue>... mockItems) {
     int pages = mockItems.length;
 
-    Map<Map<String, AttributeValue>, ScanResult> scanResultMap = new HashMap<>();
-    ScanResult firstResult = null;
+    Map<Map<String, AttributeValue>, ScanResponse> scanResultMap = new HashMap<>();
+    ScanResponse firstResult = null;
     for (int i = pages - 1; i >= 0; i--) {
-      ScanResult result = new ScanResult().withItems(mockItems[i]);
+      ScanResponse.Builder builder = ScanResponse.builder().items(mockItems[i]);
       if (i > 0) {
-        result = result.withLastEvaluatedKey(mockItems[i]);
+        ScanResponse result = builder.lastEvaluatedKey(mockItems[i]).build();
         scanResultMap.put(mockItems[i - 1], result);
       } else {
-        firstResult = result.withLastEvaluatedKey(mockItems[i]);;
+        firstResult = builder.lastEvaluatedKey(mockItems[i]).build();
       }
     }
 
-    ScanResult finalFirstResult = firstResult;
+    ScanResponse finalFirstResult = firstResult;
     doAnswer(inv -> {
       ScanRequest request = inv.getArgument(0);
       assertScanSpec(request, segmentIndex, totalSegments);
-      if (request.getExclusiveStartKey() == null) {
+      if (request.exclusiveStartKey() == null || request.exclusiveStartKey().isEmpty()) {
         return finalFirstResult;
       }
-      return scanResultMap.getOrDefault(request.getExclusiveStartKey(), new ScanResult());
+      return scanResultMap.getOrDefault(request.exclusiveStartKey(), ScanResponse.builder().build());
     }).when(mockDynamoDBClient).scan(any(ScanRequest.class));
   }
 
   private static void assertDynamoItemSameAsItem(DynamoDBItem dynamoDBItem, Map<String, AttributeValue> item) {
-    assertEquals(dynamoDBItem.getHashKey(), item.get(AmazonDynamoDBStorage.HASH_KEY).getS());
-    assertEquals(dynamoDBItem.getSortKey(), item.get(AmazonDynamoDBStorage.SORT_KEY).getS());
-    assertEquals(dynamoDBItem.getCreationTime(), (long)Long.valueOf(item.get(AmazonDynamoDBStorage.CREATION_TIME).getN()));
-    assertEquals(dynamoDBItem.id(), UUID.fromString(item.get(AmazonDynamoDBStorage.ID).getS()));
-    assertEquals(dynamoDBItem.version(), (long)Long.valueOf(item.get(AmazonDynamoDBStorage.VERSION).getN()));
+    assertEquals(dynamoDBItem.getHashKey(), item.get(AmazonDynamoDBStorage.HASH_KEY).s());
+    assertEquals(dynamoDBItem.getSortKey(), item.get(AmazonDynamoDBStorage.SORT_KEY).s());
+    assertEquals(dynamoDBItem.getCreationTime(), Long.parseLong(item.get(AmazonDynamoDBStorage.CREATION_TIME).n()));
+    assertEquals(dynamoDBItem.id(), UUID.fromString(item.get(AmazonDynamoDBStorage.ID).s()));
+    assertEquals(dynamoDBItem.version(), Long.parseLong(item.get(AmazonDynamoDBStorage.VERSION).n()));
 
-    assertEquals(dynamoDBItem.isDirectory(), item.get(AmazonDynamoDBStorage.IS_DIR).getBOOL());
+    assertEquals(dynamoDBItem.isDirectory(), item.get(AmazonDynamoDBStorage.IS_DIR).bool());
     if (dynamoDBItem.isDirectory()) {
       assertEquals(0, dynamoDBItem.getSize());
       assertFalse(dynamoDBItem.physicalDataCommitted());
@@ -507,13 +514,13 @@ public class AmazonDynamoDBStorageTest {
       assertFalse(item.containsKey(AmazonDynamoDBStorage.PHYSICAL_PATH));
       assertFalse(item.containsKey(AmazonDynamoDBStorage.PHYSICAL_DATA_COMMITTED));
     } else {
-      assertEquals(dynamoDBItem.getSize(), (long)Long.valueOf(item.get(AmazonDynamoDBStorage.SIZE).getN()));
-      assertEquals(dynamoDBItem.getPhysicalPath().get(), item.get(AmazonDynamoDBStorage.PHYSICAL_PATH).getS());
+      assertEquals(dynamoDBItem.getSize(), Long.parseLong(item.get(AmazonDynamoDBStorage.SIZE).n()));
+      assertEquals(dynamoDBItem.getPhysicalPath().get(), item.get(AmazonDynamoDBStorage.PHYSICAL_PATH).s());
       if (item.get(AmazonDynamoDBStorage.PHYSICAL_DATA_COMMITTED) == null) {
         // backwards compatibility check; if the attribute is missing, assume it's true
-        assertEquals(dynamoDBItem.physicalDataCommitted(), true);
+        assertTrue(dynamoDBItem.physicalDataCommitted());
       } else {
-        assertEquals(dynamoDBItem.physicalDataCommitted(), item.get(AmazonDynamoDBStorage.PHYSICAL_DATA_COMMITTED).getBOOL());
+        assertEquals(dynamoDBItem.physicalDataCommitted(), item.get(AmazonDynamoDBStorage.PHYSICAL_DATA_COMMITTED).bool());
       }
     }
 
@@ -521,31 +528,34 @@ public class AmazonDynamoDBStorageTest {
 
   private static void assertKeyComponents(Map<String, AttributeValue> keyAttributes, String hash, String sort) {
     assertEquals(2, keyAttributes.size());
-    assertEquals(hash, keyAttributes.get(AmazonDynamoDBStorage.HASH_KEY).getS());
-    assertEquals(sort, keyAttributes.get(AmazonDynamoDBStorage.SORT_KEY).getS());
+    assertEquals(hash, keyAttributes.get(AmazonDynamoDBStorage.HASH_KEY).s());
+    assertEquals(sort, keyAttributes.get(AmazonDynamoDBStorage.SORT_KEY).s());
   }
 
   private static void assertScanSpec(ScanRequest spec, int segmentIndex, int totalSegments) {
-    assertTrue(spec.isConsistentRead());
-    assertEquals(EXPECTED_ATTRIBUTES_TO_GET, Sets.newHashSet(spec.getAttributesToGet()));
-    assertEquals(segmentIndex, spec.getSegment().intValue());
-    assertEquals(totalSegments, spec.getTotalSegments().intValue());
+    assertTrue(spec.consistentRead());
+    assertNotNull(spec.projectionExpression());
+    assertNotNull(spec.expressionAttributeNames());
+    assertEquals(segmentIndex, spec.segment().intValue());
+    assertEquals(totalSegments, spec.totalSegments().intValue());
   }
 
   private static void assertGetItemSpec(GetItemRequest spec, String hashKey, String sort) {
-    assertEquals("table", spec.getTableName());
-    assertTrue(spec.isConsistentRead());
-    assertKeyComponents(spec.getKey(), hashKey, sort);
-    assertEquals(EXPECTED_ATTRIBUTES_TO_GET, Sets.newHashSet(spec.getAttributesToGet()));
+    assertEquals("table", spec.tableName());
+    assertTrue(spec.consistentRead());
+    assertKeyComponents(spec.key(), hashKey, sort);
+    assertNotNull(spec.projectionExpression());
+    assertNotNull(spec.expressionAttributeNames());
   }
 
   private static void assertQuerySpec(QueryRequest querySpec, String hashKey) {
-    assertEquals(1, querySpec.getKeyConditions().size());
+    assertEquals(1, querySpec.keyConditions().size());
     assertEquals(ComparisonOperator.EQ.toString(),
-                 querySpec.getKeyConditions().get(AmazonDynamoDBStorage.HASH_KEY).getComparisonOperator());
-    assertEquals(Arrays.asList(ItemUtils.toAttributeValue(hashKey)),
-                 querySpec.getKeyConditions().get(AmazonDynamoDBStorage.HASH_KEY).getAttributeValueList());
-    assertTrue(querySpec.isConsistentRead());
-    assertEquals(EXPECTED_ATTRIBUTES_TO_GET, Sets.newHashSet(querySpec.getAttributesToGet()));
+                 querySpec.keyConditions().get(AmazonDynamoDBStorage.HASH_KEY).comparisonOperatorAsString());
+    assertEquals(Collections.singletonList(ItemUtils.toAttributeValue(hashKey)),
+                 querySpec.keyConditions().get(AmazonDynamoDBStorage.HASH_KEY).attributeValueList());
+    assertTrue(querySpec.consistentRead());
+    assertNotNull(querySpec.projectionExpression());
+    assertNotNull(querySpec.expressionAttributeNames());
   }
 }

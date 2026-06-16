@@ -14,24 +14,23 @@ package com.adobe.s3fs.utils;
 
 import com.adobe.s3fs.metastore.internal.dynamodb.storage.DynamoDBStorageConfiguration;
 import com.adobe.s3fs.operationlog.S3MetadataOperationLogFactory;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
-import com.amazonaws.services.dynamodbv2.model.*;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
-import com.amazonaws.services.s3.model.ListObjectsRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.*;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,32 +42,42 @@ public final class ITUtils {
   public static final DockerImageName LOCALSTACK_IMAGE =
       DockerImageName.parse("localstack/localstack:4.14.0");
 
-  public static void createMetaTableIfNotExists(AmazonDynamoDB dynamoDB, String tableName) {
+  public static void createMetaTableIfNotExists(DynamoDbClient dynamoDbClient, String tableName) {
     try {
-      DescribeTableResult ignored = dynamoDB.describeTable(tableName);
+      dynamoDbClient.describeTable(DescribeTableRequest.builder()
+              .tableName(tableName)
+              .build());
     } catch (ResourceNotFoundException ex) {
-      createMetaTable(dynamoDB, tableName);
+      createMetaTable(dynamoDbClient, tableName);
     }
   }
 
-  public static void createBucketIfNotExists(AmazonS3 amazonS3, String bucket) {
-    if (!amazonS3.doesBucketExistV2(bucket)) {
-      amazonS3.createBucket(bucket);
+  public static void createBucketIfNotExists(S3Client s3Client, String bucket) {
+    try {
+      s3Client.headBucket(req -> req.bucket(bucket));
+    } catch (NoSuchBucketException e) {
+      s3Client.createBucket(req -> req.bucket(bucket));
     }
   }
 
-  public static void createMetaTable(AmazonDynamoDB dynamoDB, String tableName) {
-    dynamoDB.createTable(new CreateTableRequest()
-                             .withTableName(tableName)
-                             .withKeySchema(new KeySchemaElement().withKeyType(KeyType.HASH).withAttributeName("path"),
-                                            new KeySchemaElement().withKeyType(KeyType.RANGE).withAttributeName("children"))
-                             .withAttributeDefinitions(new AttributeDefinition("path", ScalarAttributeType.S),
-                                                       new AttributeDefinition("children", ScalarAttributeType.S))
-                             .withProvisionedThroughput(new ProvisionedThroughput(100L, 100L)));
+  public static void createMetaTable(DynamoDbClient dynamoDbClient, String tableName) {
+    dynamoDbClient.createTable(CreateTableRequest.builder()
+        .tableName(tableName)
+        .keySchema(
+            KeySchemaElement.builder().keyType(KeyType.HASH).attributeName("path").build(),
+            KeySchemaElement.builder().keyType(KeyType.RANGE).attributeName("children").build())
+        .attributeDefinitions(
+            AttributeDefinition.builder().attributeName("path").attributeType(ScalarAttributeType.S).build(),
+            AttributeDefinition.builder().attributeName("children").attributeType(ScalarAttributeType.S).build())
+        .billingMode(BillingMode.PROVISIONED)
+        .provisionedThroughput(ProvisionedThroughput.builder().readCapacityUnits(100L).writeCapacityUnits(100L).build())
+        .build());
   }
 
-  public static void deleteMetaTable(AmazonDynamoDB dynamoDB, String tableName) {
-    dynamoDB.deleteTable(tableName);
+  public static void deleteMetaTable(DynamoDbClient dynamoDbClient, String tableName) {
+    dynamoDbClient.deleteTable(DeleteTableRequest.builder()
+        .tableName(tableName)
+        .build());
   }
 
   public static void setFileSystemContext(String context) {
@@ -101,9 +110,6 @@ public final class ITUtils {
 
   public static void configureS3AAsUnderlyingFileSystem(LocalStackContainer container, Configuration configuration, String bucket,
                                                         String tmpPath) {
-    System.setProperty(SkipMd5CheckStrategy.DISABLE_GET_OBJECT_MD5_VALIDATION_PROPERTY, "true");
-    System.setProperty(SkipMd5CheckStrategy.DISABLE_PUT_OBJECT_MD5_VALIDATION_PROPERTY, "true");
-
     configuration.set("fs.s3k.storage.underlying.filesystem.scheme." + bucket, "s3a");
 
     configuration.setClass("fs.s3a.impl", S3AFileSystem.class, FileSystem.class);
@@ -122,16 +128,23 @@ public final class ITUtils {
     configuration.setInt(String.format("%s.%s", "fs.s3k.metastore.dynamo.suffix.count", bucket), count);
   }
 
-  public static List<S3ObjectSummary> listFully(AmazonS3 s3, String bucket) {
-    List<S3ObjectSummary> result = new ArrayList<>();
+  public static List<S3Object> listFully(S3Client s3Client, String bucket) {
+    List<S3Object> result = new ArrayList<>();
 
-    ObjectListing objectListing = s3.listObjects(new ListObjectsRequest().withBucketName(bucket));
-    result.addAll(objectListing.getObjectSummaries());
+    ListObjectsV2Request request = ListObjectsV2Request.builder()
+        .bucket(bucket)
+        .build();
 
-    while (objectListing.isTruncated()) {
-      objectListing = s3.listNextBatchOfObjects(objectListing);
-      result.addAll(objectListing.getObjectSummaries());
-    }
+    ListObjectsV2Response response;
+    do {
+      response = s3Client.listObjectsV2(request);
+      result.addAll(response.contents());
+
+      request = ListObjectsV2Request.builder()
+          .bucket(bucket)
+          .continuationToken(response.nextContinuationToken())
+          .build();
+    } while (response.isTruncated());
 
     return result;
   }
@@ -140,29 +153,25 @@ public final class ITUtils {
     configuration.setBoolean("fs.s3k.metastore.operations.async." + bucket + "." + context, true);
   }
 
-  public static AmazonS3 amazonS3(LocalStackContainer localStackContainer) {
-    return AmazonS3ClientBuilder.standard()
-        .withEndpointConfiguration(
-            new AwsClientBuilder.EndpointConfiguration(
-                localStackContainer.getEndpoint().toString(),
-                localStackContainer.getRegion()))
-        .withCredentials(
-            new AWSStaticCredentialsProvider(
-                new BasicAWSCredentials(
+  public static S3Client s3Client(LocalStackContainer localStackContainer) {
+    return S3Client.builder()
+        .endpointOverride(URI.create(localStackContainer.getEndpoint().toString()))
+        .region(Region.of(localStackContainer.getRegion()))
+        .credentialsProvider(
+            StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(
                     localStackContainer.getAccessKey(),
                     localStackContainer.getSecretKey())))
         .build();
   }
 
-  public static AmazonDynamoDB amazonDynamoDB(LocalStackContainer localStackContainer) {
-    return AmazonDynamoDBClientBuilder.standard()
-        .withEndpointConfiguration(
-            new AwsClientBuilder.EndpointConfiguration(
-                localStackContainer.getEndpoint().toString(),
-                localStackContainer.getRegion()))
-        .withCredentials(
-            new AWSStaticCredentialsProvider(
-                new BasicAWSCredentials(
+  public static DynamoDbClient amazonDynamoDB(LocalStackContainer localStackContainer) {
+    return DynamoDbClient.builder()
+        .endpointOverride(URI.create(localStackContainer.getEndpoint().toString()))
+        .region(Region.of(localStackContainer.getRegion()))
+        .credentialsProvider(
+            StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(
                     localStackContainer.getAccessKey(),
                     localStackContainer.getSecretKey())))
         .build();

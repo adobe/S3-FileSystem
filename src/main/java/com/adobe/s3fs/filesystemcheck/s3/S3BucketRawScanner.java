@@ -13,10 +13,10 @@ governing permissions and limitations under the License.
 package com.adobe.s3fs.filesystemcheck.s3;
 
 import com.adobe.s3fs.utils.aws.s3.StreamingPrefixKeysIterator;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.adobe.s3fs.utils.aws.s3.model.S3ObjectLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,21 +32,21 @@ public class S3BucketRawScanner {
   // S3 prefixes to query
   private final S3Partitioner s3Partitioner;
   // AWS S3 client
-  private final AmazonS3 amazonS3;
+  private final S3Client s3Client;
 
-  public S3BucketRawScanner(String bucket, S3Partitioner s3Partitioner, AmazonS3 amazonS3) {
+  public S3BucketRawScanner(String bucket, S3Partitioner s3Partitioner, S3Client s3Client) {
     this.bucket = Objects.requireNonNull(bucket);
     this.s3Partitioner = Objects.requireNonNull(s3Partitioner);
-    this.amazonS3 = Objects.requireNonNull(amazonS3);
+    this.s3Client = Objects.requireNonNull(s3Client);
   }
 
-  public List<Iterable<S3ObjectSummary>> scan() {
+  public List<Iterable<S3ObjectLocation>> scan() {
     return s3Partitioner.prefixes().stream()
         .map(this::partition)
         .collect(Collectors.toList());
   }
 
-  private Iterable<S3ObjectSummary> partition(String prefix) {
-    return () -> new StreamingPrefixKeysIterator(amazonS3, bucket, prefix);
+  private Iterable<S3ObjectLocation> partition(String prefix) {
+    return () -> new StreamingPrefixKeysIterator(s3Client, bucket, prefix);
   }
 }
