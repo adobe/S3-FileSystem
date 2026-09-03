@@ -44,7 +44,8 @@ public class KeyOperations {
 
     int hash = hashFunction.applyAsInt(key);
 
-    String suffix = suffixPool.get(Math.abs(hash) % suffixPool.size());
+    // Math.abs(Integer.MIN_VALUE) == Integer.MIN_VALUE, compute remainder inside abs, otherwise AIOOBE is thrown.
+    String suffix = suffixPool.get(Math.abs(hash % suffixPool.size()));
 
     return key.getParent().toString() + SUFFIX_DELIMITER + suffix;
   }
