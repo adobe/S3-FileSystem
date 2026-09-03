@@ -12,13 +12,8 @@ governing permissions and limitations under the License.
 
 package com.adobe.s3fs.metastore.internal.dynamodb.hashing;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.hadoop.fs.Path;
 import org.junit.Before;
 import org.junit.Test;
@@ -27,6 +22,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.ToIntFunction;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class KeyOperationsTest {
 
@@ -57,6 +57,18 @@ public class KeyOperationsTest {
     String hashKey = keyOperations.logicalKeyToHashKey(key);
 
     assertTrue(SUFFIXES.stream().anyMatch(hashKey::endsWith));
+  }
+
+  @Test
+  public void testLogicalKeyToHashKeyWithMinValueHash() {
+    ArrayList<String> tenSuffixes = new ArrayList<>();
+    for (int i = 0; i < 10; i++) {
+      tenSuffixes.add("sf" + i);
+    }
+    ToIntFunction<Path> integerMinValueHasher = path -> Integer.MIN_VALUE;
+    KeyOperations ops = new KeyOperations(tenSuffixes, integerMinValueHasher);
+
+    assertEquals("ks://bucket/d-sf8", ops.logicalKeyToHashKey(new Path("ks://bucket/d/f")));
   }
 
   @Test
