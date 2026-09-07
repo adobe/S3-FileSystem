@@ -16,6 +16,7 @@ import com.adobe.s3fs.common.configuration.FileSystemConfiguration;
 import com.adobe.s3fs.common.context.FileSystemContext;
 import com.adobe.s3fs.metastore.api.MetadataOperationLog;
 import com.adobe.s3fs.metastore.api.MetadataOperationLogFactory;
+import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -44,6 +45,7 @@ public class S3MetadataOperationLogFactory implements MetadataOperationLogFactor
   public static final String AWS_ENDPOINT = "fs.s3k.operationlog.s3.endpoint";
   public static final String AWS_SIGNING_REGION = "fs.s3k.operationlog.s3.signing.region";
   public static final String OPERATION_LOG_BUCKET = "fs.s3k.operationlog.s3.bucket";
+  public static final String OPERATION_LOG_REGION = "fs.s3k.operationlog.s3.region";
 
   public static final int DEFAULT_BASE_EXPONENTIAL_DELAY = 10;
   public static final int DEFAULT_MAX_EXPONENTIAL_DELAY = 30000;
@@ -108,9 +110,16 @@ public class S3MetadataOperationLogFactory implements MetadataOperationLogFactor
           StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)));
     }
 
+    String region = configuration.getString(OPERATION_LOG_REGION, "");
+    if (!"".equals(region)) {
+      clientBuilder.region(Region.of(region));
+    }
+
     String endpoint = configuration.getString(AWS_ENDPOINT, "");
     String signingRegion = configuration.getString(AWS_SIGNING_REGION, "");
-    if (!"".equals(endpoint) && !"".equals(signingRegion)) {
+    if (!"".equals(endpoint)) {
+      Preconditions.checkArgument(!"".equals(signingRegion),
+          "%s must be set when %s is set", AWS_SIGNING_REGION, AWS_ENDPOINT);
       clientBuilder.endpointOverride(URI.create(endpoint));
       clientBuilder.region(Region.of(signingRegion));
     }
