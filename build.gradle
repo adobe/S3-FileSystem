@@ -19,7 +19,7 @@ apply plugin: 'signing'
 
 group = "com.adobe.s3fs"
 archivesBaseName = "s3-filesystem"
-version = "2.0.1"
+version = "2.0.2"
 
 dependencies {
     annotationProcessor "org.immutables:value:$versionImmutables"
